@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -71,9 +72,10 @@ type Kernel struct {
 	// refused is the cards that failed to give their temperature, and how: each is asked once and not again, since a card that does not answer is
 	// reset by its driver
 	refused map[string]error
-	// limitless is the enclosures that would not give the page of limits they hold their sensors to, which not every enclosure has: each is
-	// asked for it once and not again
+	// limitless is the enclosures that would not give the page of limits they hold their sensors to, and laneless the page that says which
+	// connector each lane is wired to, which not every enclosure has: each is asked for either once and not again
 	limitless map[string]bool
+	laneless  map[string]bool
 }
 
 // Devices is how the hardware itself is asked for what is not in /sys. Either may be nil, for something that is not to be asked.
@@ -87,7 +89,7 @@ type Devices struct {
 
 // New is the kernel whose /sys is at root, with those ways of asking the hardware itself.
 func New(root string, devices Devices) *Kernel {
-	return &Kernel{root: root, devices: devices, read: os.ReadFile, refused: map[string]error{}, limitless: map[string]bool{}}
+	return &Kernel{root: root, devices: devices, read: os.ReadFile, refused: map[string]error{}, limitless: map[string]bool{}, laneless: map[string]bool{}}
 }
 
 // text is what one file holds, less the padding around it.
@@ -196,6 +198,15 @@ func (k *Kernel) hba(name string) (poll.HBA, error) {
 		Driver:     a.optional("proc_name"),
 		Running:    a.text("state") == running,
 		Resets:     a.count("ioc_reset_count"),
+
+		Serial:        a.optional("board_tracer"),
+		Assembly:      a.optional("board_assembly"),
+		Chip:          a.optional("version_product"),
+		NVData:        nvdata(a.optional("version_nvdata_persistent")),
+		NVDataDefault: nvdata(a.optional("version_nvdata_default")),
+		MPI:           a.optional("version_mpi"),
+		InFlight:      a.count("host_busy"),
+		Queue:         a.count("can_queue"),
 	}
 	if a.err != nil {
 		return poll.HBA{}, a.err
@@ -487,7 +498,12 @@ func (r *reading) port(ctx context.Context, n *node, p *port, numbers map[string
 // phy reads one phy: its number, its link and its error counts.
 func (r *reading) phy(dir, expander string) (poll.Phy, error) {
 	a := attrs{k: r.k, dir: dir}
-	identifier, negotiated, maximum := a.text("phy_identifier"), a.text("negotiated_linkrate"), a.optional("maximum_linkrate")
+	identifier, negotiated := a.text("phy_identifier"), a.text("negotiated_linkrate")
+	// each is a speed, or a word for one the phy does not know, which is 0
+	limits := [4]float64{}
+	for i, name := range []string{"maximum_linkrate", "minimum_linkrate", "maximum_linkrate_hw", "minimum_linkrate_hw"} {
+		_, limits[i] = link(a.optional(name))
+	}
 	if a.err != nil {
 		return poll.Phy{}, a.err
 	}
@@ -498,9 +514,8 @@ func (r *reading) phy(dir, expander string) (poll.Phy, error) {
 	}
 
 	state, rate := link(negotiated)
-	_, ceiling := link(maximum)
 
-	return poll.Phy{Expander: expander, Number: number, Link: state, Rate: rate, Maximum: ceiling, Errors: r.counts(dir)}, nil
+	return poll.Phy{Expander: expander, Number: number, Link: state, Rate: rate, Maximum: limits[0], Minimum: limits[1], HardwareMaximum: limits[2], HardwareMinimum: limits[3], Errors: r.counts(dir)}, nil
 }
 
 // counts reads a phy's four error counts, each of which the kernel fetches from the card or the expander as its file is read. A phy that keeps
@@ -554,6 +569,10 @@ func (k *Kernel) expander(n *node) (poll.Expander, error) {
 		Vendor:     own.optional("vendor_id"),
 		Product:    own.optional("product_id"),
 		Revision:   own.optional("product_rev"),
+
+		ChipVendor:   own.optional("component_vendor_id"),
+		Chip:         own.optional("component_id"),
+		ChipRevision: own.optional("component_revision_id"),
 	}
 
 	return expander, cmp.Or(own.err, device.err)
@@ -614,6 +633,8 @@ func (k *Kernel) device(e end, expander string, phy int) (poll.Device, bool, err
 		Completed:  a.count("iodone_cnt"),
 		Errors:     a.count("ioerr_cnt"),
 		Timeouts:   a.count("iotmo_cnt"),
+		QueueDepth: a.count("queue_depth"),
+		Timeout:    a.count("timeout"),
 	}
 	if err := cmp.Or(a.err, line.err); err != nil {
 		return poll.Device{}, false, err
@@ -740,7 +761,7 @@ func (k *Kernel) enclosuresBelow(ctx context.Context, n *node) ([]poll.Enclosure
 	return out, nil
 }
 
-// enclosure is what one enclosure says of itself and of each of its slots. Each of a slot's three readings has the kernel fetch the enclosure's
+// enclosure is what one enclosure says of itself and of each of its slots. Each of a slot's four readings has the kernel fetch the enclosure's
 // status afresh.
 func (k *Kernel) enclosure(ctx context.Context, scsi, name, expander string) (poll.Enclosure, error) {
 	dir := filepath.Join(scsi, enclosureDir, name)
@@ -756,6 +777,11 @@ func (k *Kernel) enclosure(ctx context.Context, scsi, name, expander string) (po
 	}
 	if err := cmp.Or(device.err, own.err); err != nil {
 		return poll.Enclosure{}, err
+	}
+
+	// the description is not text, so it is read as it is; a kernel that does not give it gives nothing of it
+	if inquiry, err := k.read(filepath.Join(scsi, "inquiry")); err == nil {
+		enclosure.VendorSpecific = vendorSpecific(inquiry)
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -781,6 +807,15 @@ func (k *Kernel) enclosure(ctx context.Context, scsi, name, expander string) (po
 		slot := poll.Slot{Number: slotNumber(given, entry.Name()), Status: word(a.text("status")), Fault: lit(a.text("fault")), Locate: lit(a.text("locate"))}
 		if a.err != nil {
 			return poll.Enclosure{}, a.err
+		}
+
+		// an enclosure whose driver cannot say whether a slot has power is refused at once, and its slots go without
+		power, err := k.text(a.dir, "power_status")
+		switch {
+		case err == nil:
+			slot.Powered = new(power == "on")
+		case !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTTY):
+			return poll.Enclosure{}, err
 		}
 
 		enclosure.Slots = append(enclosure.Slots, slot)
@@ -822,8 +857,12 @@ func (k *Kernel) Sensors(ctx context.Context, hba string) (poll.Sensors, error) 
 	}
 
 	if k.devices.CardPage != nil {
-		s.Temperatures, err = k.temperatures(ctx, hba, dir)
+		page, err := k.cardPage(ctx, hba, dir)
 		note("the card's temperature", err)
+
+		s.Temperatures = temperatures(page)
+		s.Speed, _ = mpt.Speed(page)
+		s.PowerMode = mpt.PowerMode(page)
 	}
 
 	if k.devices.Diagnostic != nil {
@@ -832,7 +871,7 @@ func (k *Kernel) Sensors(ctx context.Context, hba string) (poll.Sensors, error) 
 			return poll.Sensors{}, err
 		}
 
-		s.Enclosures, err = k.sensorsBelow(ctx, &top)
+		s.Enclosures, err = k.sensorsBelow(ctx, &top, k.expanderNames(&top))
 		note("the enclosures' sensors", err)
 	}
 
@@ -851,9 +890,10 @@ func kept(err error) bool {
 // errNotAgain is a card that failed to give its temperature once and is not asked again.
 var errNotAgain = errors.New("not asked again until the program is started again, so as not to trouble the card")
 
-// temperatures is a card's own temperatures, asked of the card through its driver. A card whose driver gives it no number cannot be asked, and
-// has none. A card that fails to answer is asked the once: the driver resets a card that does not answer, and that must not happen every minute.
-func (k *Kernel) temperatures(ctx context.Context, hba, dir string) ([]poll.Temperature, error) {
+// cardPage is the page a card keeps its own temperatures, speed and power mode in, asked of the card through its driver. A card whose driver gives
+// it no number cannot be asked, and has none. A card that fails to answer is asked the once: the driver resets a card that does not answer, and
+// that must not happen every minute.
+func (k *Kernel) cardPage(ctx context.Context, hba, dir string) ([]byte, error) {
 	a := attrs{k: k, dir: filepath.Join(dir, scsiHostDir, hba)}
 	driver, id := a.optional("proc_name"), a.count("unique_id")
 	if a.err != nil || driver == "" || id == nil {
@@ -879,8 +919,14 @@ func (k *Kernel) temperatures(ctx context.Context, hba, dir string) ([]poll.Temp
 		return nil, err
 	}
 
-	var out []poll.Temperature
-	for _, t := range mpt.Temperatures(page) {
+	return page, nil
+}
+
+// temperatures is a card's own temperatures, from the page it keeps them in.
+func temperatures(page []byte) []poll.Temperature {
+	read := mpt.Temperatures(page)
+	out := make([]poll.Temperature, 0, len(read))
+	for _, t := range read {
 		sensor := poll.SensorChip
 		if t.Board {
 			sensor = poll.SensorBoard
@@ -889,12 +935,28 @@ func (k *Kernel) temperatures(ctx context.Context, hba, dir string) ([]poll.Temp
 		out = append(out, poll.Temperature{Sensor: sensor, Celsius: t.Celsius})
 	}
 
-	return out, nil
+	return out
+}
+
+// expanderNames is the kernel's name for each expander below one card or expander, by its SAS address, which is how an enclosure names one.
+func (k *Kernel) expanderNames(n *node) map[string]string {
+	names := map[string]string{}
+	for i := range n.ports {
+		for j := range n.ports[i].expanders {
+			below := &n.ports[i].expanders[j]
+			if e, err := k.expander(below); err == nil && e.SASAddress != "" {
+				names[e.SASAddress] = e.Name
+			}
+			maps.Copy(names, k.expanderNames(below))
+		}
+	}
+
+	return names
 }
 
 // sensorsBelow is what each enclosure below one card or expander says of the things in it. The first one that cannot be asked stops the rest
 // being asked: they are opened the same way and would be refused the same way.
-func (k *Kernel) sensorsBelow(ctx context.Context, n *node) ([]poll.EnclosureSensors, error) {
+func (k *Kernel) sensorsBelow(ctx context.Context, n *node, expanders map[string]string) ([]poll.EnclosureSensors, error) {
 	var out []poll.EnclosureSensors
 	for i := range n.ports {
 		for _, e := range n.ports[i].ends {
@@ -915,7 +977,7 @@ func (k *Kernel) sensorsBelow(ctx context.Context, n *node) ([]poll.EnclosureSen
 				continue
 			}
 
-			sensors, err := k.enclosureSensors(ctx, dir)
+			sensors, err := k.enclosureSensors(ctx, dir, expanders)
 			if err != nil {
 				return out, fmt.Errorf("%s: %w", filepath.Base(dir), err)
 			}
@@ -924,7 +986,7 @@ func (k *Kernel) sensorsBelow(ctx context.Context, n *node) ([]poll.EnclosureSen
 		}
 
 		for j := range n.ports[i].expanders {
-			below, err := k.sensorsBelow(ctx, &n.ports[i].expanders[j])
+			below, err := k.sensorsBelow(ctx, &n.ports[i].expanders[j], expanders)
 			out = append(out, below...)
 			if err != nil {
 				return out, err
@@ -935,9 +997,10 @@ func (k *Kernel) sensorsBelow(ctx context.Context, n *node) ([]poll.EnclosureSen
 	return out, nil
 }
 
-// enclosureSensors asks one enclosure for the pages that describe it and reads everything in it that is not a slot. The enclosure is
-// reached through the device the kernel's generic SCSI driver makes for it, which the kernel names beside the enclosure.
-func (k *Kernel) enclosureSensors(ctx context.Context, dir string) (poll.EnclosureSensors, error) {
+// enclosureSensors asks one enclosure for the pages that describe it and reads everything in it that is not a slot, and which connector each
+// lane of its expanders is wired to. The enclosure is reached through the device the kernel's generic SCSI driver makes for it, which the kernel
+// names beside the enclosure; expanders is the kernel's name for each expander by its SAS address.
+func (k *Kernel) enclosureSensors(ctx context.Context, dir string, expanders map[string]string) (poll.EnclosureSensors, error) {
 	generic, err := os.Readlink(filepath.Join(dir, "generic"))
 	if err != nil {
 		return poll.EnclosureSensors{}, fmt.Errorf("the kernel has made no device to ask it through: %w", err)
@@ -961,7 +1024,7 @@ func (k *Kernel) enclosureSensors(ctx context.Context, dir string) (poll.Enclosu
 		Conditions: poll.Conditions{Info: enclosure.Info, NonCritical: enclosure.NonCritical, Critical: enclosure.Critical, Unrecoverable: enclosure.Unrecoverable},
 	}
 
-	named := map[string]bool{}
+	named, names := map[string]bool{}, make([]string, len(enclosure.Elements))
 	for i := range enclosure.Elements {
 		e := &enclosure.Elements[i]
 		// the kernel already reports on the slots, without the enclosure being asked
@@ -969,7 +1032,11 @@ func (k *Kernel) enclosureSensors(ctx context.Context, dir string) (poll.Enclosu
 			continue
 		}
 
-		element := poll.Element{Kind: e.Kind.String(), Name: elementName(e, named), Status: e.StatusWord(), Fault: e.Fault()}
+		names[i] = elementName(e, named)
+		element := poll.Element{Kind: e.Kind.String(), Name: names[i], Status: e.StatusWord(), Fault: e.Fault(), PredictedFailure: e.PredictedFailure()}
+		if on, has := e.Locate(); has {
+			element.Locate = new(on)
+		}
 		if rpm, ok := e.RPM(); ok {
 			element.RPM = &rpm
 		}
@@ -992,7 +1059,38 @@ func (k *Kernel) enclosureSensors(ctx context.Context, dir string) (poll.Enclosu
 		out.Elements = append(out.Elements, element)
 	}
 
+	for _, lane := range k.lanes(ctx, dir, filepath.Base(generic), &enclosure, pages[0]) {
+		if name, known := expanders[lane.Expander]; known && names[lane.Connector] != "" {
+			out.Lanes = append(out.Lanes, poll.Lane{Expander: name, Phy: lane.Phy, Connector: names[lane.Connector]})
+		}
+	}
+
 	return out, nil
+}
+
+// lanes asks an enclosure which connector each lane of its expanders is wired to. Not every enclosure has that page, and going without costs only
+// that: nothing here fails, and an enclosure that will not give the page is not asked for it again.
+func (k *Kernel) lanes(ctx context.Context, dir, device string, enclosure *ses.Enclosure, configuration []byte) []ses.Lane {
+	k.mu.Lock()
+	without := k.laneless[dir]
+	k.mu.Unlock()
+	if without {
+		return nil
+	}
+
+	page, err := k.devices.Diagnostic(ctx, device, ses.PageAdditional)
+	var lanes []ses.Lane
+	if err == nil {
+		lanes, err = enclosure.Lanes(configuration, page)
+	}
+	// being stopped part way is not the enclosure refusing
+	if err != nil && ctx.Err() == nil {
+		k.mu.Lock()
+		k.laneless[dir] = true
+		k.mu.Unlock()
+	}
+
+	return lanes
 }
 
 // limits asks an enclosure for the limits it holds its sensors to and keeps them with what Parse read. Not every enclosure has that page, and going

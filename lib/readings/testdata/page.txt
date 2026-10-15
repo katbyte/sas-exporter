@@ -1,6 +1,12 @@
-# HELP sas_card_info Always 1, with the card's model, the versions of its firmware, its BIOS and its driver, its SAS address, and the kernel's name for it today, which is the number its expanders and enclosures are named with.
+# HELP sas_card_commands_in_flight Commands the kernel had sent the card that had not come back, at the moment the card was last asked: a glimpse once a links interval, so it shows a card that stays busy and not a burst.
+# TYPE sas_card_commands_in_flight gauge
+sas_card_commands_in_flight{card="9500-16i"} 37
+# HELP sas_card_commands_in_flight_limit The most commands the kernel will have out with the card at once: in flight near this for long is a card given more than it can take.
+# TYPE sas_card_commands_in_flight_limit gauge
+sas_card_commands_in_flight_limit{card="9500-16i"} 4336
+# HELP sas_card_info Always 1, with the card's model, the versions of its firmware, its BIOS and its driver, its SAS address, and the kernel's name for it today, which is the number its expanders and enclosures are named with. Then its serial number, part number and chip, the versions of the settings it keeps (nvdata) and came with (nvdata_default), and of the language it and its driver speak (mpi).
 # TYPE sas_card_info gauge
-sas_card_info{bios="09.27.00.00",card="9500-16i",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",sas_address="500062b000000001",scsi_host="host1"} 1
+sas_card_info{assembly="03-50134-00001",bios="09.27.00.00",card="9500-16i",chip="SAS3816",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",mpi="206.3d",nvdata="2001000bh",nvdata_default="2001000ah",sas_address="500062b000000001",scsi_host="host1",serial="C000000001"} 1
 # HELP sas_card_pcie_link_speed_gigatransfers_per_second The speed of each lane of the card's own link to the machine, in gigatransfers a second: 16 is PCIe 4.0, 8 is 3.0.
 # TYPE sas_card_pcie_link_speed_gigatransfers_per_second gauge
 sas_card_pcie_link_speed_gigatransfers_per_second{card="9500-16i"} 8
@@ -13,9 +19,17 @@ sas_card_pcie_maximum_link_speed_gigatransfers_per_second{card="9500-16i"} 16
 # HELP sas_card_pcie_maximum_link_width How many lanes the card's own link to the machine could have: a link narrower than this is a card in a narrower slot, or not seated.
 # TYPE sas_card_pcie_maximum_link_width gauge
 sas_card_pcie_maximum_link_width{card="9500-16i"} 8
+# HELP sas_card_power_mode Always 1 for the power mode the card says it is in, full, reduced or standby, and 0 for the others.
+# TYPE sas_card_power_mode gauge
+sas_card_power_mode{card="9500-16i",mode="full"} 0
+sas_card_power_mode{card="9500-16i",mode="reduced"} 1
+sas_card_power_mode{card="9500-16i",mode="standby"} 0
 # HELP sas_card_resets_total How many times the card's firmware has been restarted since its driver loaded.
 # TYPE sas_card_resets_total counter
 sas_card_resets_total{card="9500-16i"} 2
+# HELP sas_card_speed_ratio How fast the card's processor runs, as a share of its full speed: below 1 is a card that has slowed itself, to keep cool or to save power.
+# TYPE sas_card_speed_ratio gauge
+sas_card_speed_ratio{card="9500-16i"} 0.5
 # HELP sas_card_temperature_celsius The card's own temperature, by where on the card it is taken: chip for its processor, board for the card around it.
 # TYPE sas_card_temperature_celsius gauge
 sas_card_temperature_celsius{card="9500-16i",sensor="board"} 41
@@ -44,10 +58,16 @@ sas_device_commands_total{card="9500-16i",disk="sdc",serial="Z0000031"} 9000
 # TYPE sas_device_info gauge
 sas_device_info{card="9500-16i",disk="sdb",enclosure="1:0:24:0",expander="expander-1:0",model="WUH722020BL5204",phy="0",revision="C54K",sas_address="5000cca000000040",serial="Z0000030",slot="0",vendor="WDC",wwn="5000cca000000041"} 1
 sas_device_info{card="9500-16i",disk="sdc",enclosure="1:0:24:0",expander="expander-1:0",model="ST4000NM0035",phy="1",revision="SN04",sas_address="5000c50000000050",serial="Z0000031",slot="1",vendor="ATA",wwn=""} 1
+# HELP sas_device_queue_depth The most commands the kernel will have out with the device at once: sent less completed near this for long is a disk given more than it can take.
+# TYPE sas_device_queue_depth gauge
+sas_device_queue_depth{card="9500-16i",disk="sdb",serial="Z0000030"} 64
 # HELP sas_device_state Always 1, with what the kernel says the device is doing: running, or blocked, offline, transport_offline and the like for one it has stopped sending to.
 # TYPE sas_device_state gauge
 sas_device_state{card="9500-16i",disk="sdb",serial="Z0000030",state="running"} 1
 sas_device_state{card="9500-16i",disk="sdc",serial="Z0000031",state="offline"} 1
+# HELP sas_device_timeout_seconds How long the kernel waits for the device to answer a command before giving up on it and trying to get it back.
+# TYPE sas_device_timeout_seconds gauge
+sas_device_timeout_seconds{card="9500-16i",disk="sdb",serial="Z0000030"} 30
 # HELP sas_enclosure_condition Whether the enclosure says something in it is in that condition (1) or not (0): info, non_critical, critical or unrecoverable.
 # TYPE sas_enclosure_condition gauge
 sas_enclosure_condition{card="9500-16i",condition="critical",enclosure="1:0:24:0"} 1
@@ -57,6 +77,9 @@ sas_enclosure_condition{card="9500-16i",condition="unrecoverable",enclosure="1:0
 # HELP sas_enclosure_current_amperes What one of the enclosure's current sensors reads.
 # TYPE sas_enclosure_current_amperes gauge
 sas_enclosure_current_amperes{card="9500-16i",element="12V",enclosure="1:0:24:0"} 18.5
+# HELP sas_enclosure_current_limit_ratio A limit the enclosure holds one of its current sensors to, as a share above what the sensor should read, which the enclosure does not say: 0.15 is 15% above it. By which: high_critical or high_warning.
+# TYPE sas_enclosure_current_limit_ratio gauge
+sas_enclosure_current_limit_ratio{card="9500-16i",element="12V",enclosure="1:0:24:0",limit="high_critical"} 0.05
 # HELP sas_enclosure_element_fault Whether the enclosure reports the thing as failed (1) or not (0).
 # TYPE sas_enclosure_element_fault gauge
 sas_enclosure_element_fault{card="9500-16i",element="0",enclosure="1:0:24:0",type="sas_connector"} 0
@@ -69,6 +92,23 @@ sas_enclosure_element_fault{card="9500-16i",element="Fan2",enclosure="1:0:24:0",
 sas_enclosure_element_fault{card="9500-16i",element="PS1",enclosure="1:0:24:0",type="power_supply"} 0
 sas_enclosure_element_fault{card="9500-16i",element="PS2",enclosure="1:0:24:0",type="power_supply"} 1
 sas_enclosure_element_fault{card="9500-16i",element="PS3",enclosure="1:0:24:0",type="power_supply"} 0
+# HELP sas_enclosure_element_locate Whether the thing's locate light is on (1) or not (0), for the kinds of thing that have one.
+# TYPE sas_enclosure_element_locate gauge
+sas_enclosure_element_locate{card="9500-16i",element="Fan1",enclosure="1:0:24:0",type="cooling"} 0
+sas_enclosure_element_locate{card="9500-16i",element="Fan2",enclosure="1:0:24:0",type="cooling"} 0
+sas_enclosure_element_locate{card="9500-16i",element="PS1",enclosure="1:0:24:0",type="power_supply"} 1
+# HELP sas_enclosure_element_predicted_failure Whether the enclosure expects the thing to fail (1) or not (0).
+# TYPE sas_enclosure_element_predicted_failure gauge
+sas_enclosure_element_predicted_failure{card="9500-16i",element="0",enclosure="1:0:24:0",type="sas_connector"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="12V",enclosure="1:0:24:0",type="current_sensor"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="12V",enclosure="1:0:24:0",type="voltage_sensor"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="5V",enclosure="1:0:24:0",type="voltage_sensor"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="Backplane",enclosure="1:0:24:0",type="temperature_sensor"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="Fan1",enclosure="1:0:24:0",type="cooling"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="Fan2",enclosure="1:0:24:0",type="cooling"} 1
+sas_enclosure_element_predicted_failure{card="9500-16i",element="PS1",enclosure="1:0:24:0",type="power_supply"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="PS2",enclosure="1:0:24:0",type="power_supply"} 0
+sas_enclosure_element_predicted_failure{card="9500-16i",element="PS3",enclosure="1:0:24:0",type="power_supply"} 0
 # HELP sas_enclosure_element_status Always 1, with what the enclosure says of one of the things in it that is not a slot: a fan, a power supply, a sensor, a connector. ok, not_installed, critical and the rest are as for a slot.
 # TYPE sas_enclosure_element_status gauge
 sas_enclosure_element_status{card="9500-16i",element="0",enclosure="1:0:24:0",status="ok",type="sas_connector"} 1
@@ -85,9 +125,9 @@ sas_enclosure_element_status{card="9500-16i",element="PS3",enclosure="1:0:24:0",
 # TYPE sas_enclosure_fan_speed_rpm gauge
 sas_enclosure_fan_speed_rpm{card="9500-16i",element="Fan1",enclosure="1:0:24:0"} 5400
 sas_enclosure_fan_speed_rpm{card="9500-16i",element="Fan2",enclosure="1:0:24:0"} 0
-# HELP sas_enclosure_info Always 1, with the enclosure's maker, product and revision, the expander it speaks through, and its own identifier, which stays the same when the kernel's name for the enclosure changes.
+# HELP sas_enclosure_info Always 1, with the enclosure's maker, product and revision, the expander it speaks through, its own identifier, which stays the same when the kernel's name for the enclosure changes, and what its maker put in the part of its description left to it: a Supermicro backplane's firmware version.
 # TYPE sas_enclosure_info gauge
-sas_enclosure_info{card="9500-16i",enclosure="1:0:24:0",expander="expander-1:0",id="5003048000000002",product="SC846-P",revision="100b",vendor="SMC"} 1
+sas_enclosure_info{card="9500-16i",enclosure="1:0:24:0",expander="expander-1:0",id="5003048000000002",product="SC846-P",revision="100b",vendor="SMC",vendor_specific="x40-66.16.11.0"} 1
 # HELP sas_enclosure_power_supply_problem Whether a power supply is in that particular trouble (1) or not (0): ac_fail, dc_fail, dc_overvoltage, dc_undervoltage, dc_overcurrent, overtemperature_fail, temperature_warning or off.
 # TYPE sas_enclosure_power_supply_problem gauge
 sas_enclosure_power_supply_problem{card="9500-16i",element="PS1",enclosure="1:0:24:0",problem="ac_fail"} 0
@@ -108,6 +148,12 @@ sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="0"} 0
 sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="1"} 0
 sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="2"} 1
 sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="3"} 0
+# HELP sas_enclosure_slot_powered Whether the enclosure has power to the slot (1) or has turned it off (0).
+# TYPE sas_enclosure_slot_powered gauge
+sas_enclosure_slot_powered{card="9500-16i",enclosure="1:0:24:0",slot="0"} 1
+sas_enclosure_slot_powered{card="9500-16i",enclosure="1:0:24:0",slot="1"} 1
+sas_enclosure_slot_powered{card="9500-16i",enclosure="1:0:24:0",slot="2"} 1
+sas_enclosure_slot_powered{card="9500-16i",enclosure="1:0:24:0",slot="3"} 0
 # HELP sas_enclosure_slot_status Always 1, with what the enclosure says of the slot: ok, not_installed for an empty one, or critical, non_critical, unrecoverable, unavailable, unknown and unsupported.
 # TYPE sas_enclosure_slot_status gauge
 sas_enclosure_slot_status{card="9500-16i",enclosure="1:0:24:0",slot="0",status="ok"} 1
@@ -125,13 +171,24 @@ sas_enclosure_temperature_celsius{card="9500-16i",element="Backplane",enclosure=
 sas_enclosure_temperature_limit_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0",limit="high_critical"} 50
 sas_enclosure_temperature_limit_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0",limit="high_warning"} 46
 sas_enclosure_temperature_limit_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0",limit="low_warning"} 10
+# HELP sas_enclosure_voltage_limit_ratio A limit the enclosure holds one of its voltage sensors to, as a share of what the sensor should read, which the enclosure does not say: 0.15 is 15% above it and -0.15 15% below. By which: high_critical, high_warning, low_warning or low_critical.
+# TYPE sas_enclosure_voltage_limit_ratio gauge
+sas_enclosure_voltage_limit_ratio{card="9500-16i",element="12V",enclosure="1:0:24:0",limit="high_critical"} 0.15
+sas_enclosure_voltage_limit_ratio{card="9500-16i",element="12V",enclosure="1:0:24:0",limit="high_warning"} 0.1
+sas_enclosure_voltage_limit_ratio{card="9500-16i",element="12V",enclosure="1:0:24:0",limit="low_critical"} -0.15
+sas_enclosure_voltage_limit_ratio{card="9500-16i",element="12V",enclosure="1:0:24:0",limit="low_warning"} -0.1
 # HELP sas_enclosure_voltage_volts What one of the enclosure's voltage sensors reads.
 # TYPE sas_enclosure_voltage_volts gauge
 sas_enclosure_voltage_volts{card="9500-16i",element="12V",enclosure="1:0:24:0"} 11.2
 sas_enclosure_voltage_volts{card="9500-16i",element="5V",enclosure="1:0:24:0"} 5.04
-# HELP sas_expander_info Always 1, with the expander's maker, product and revision, and its SAS address, which stays the same when the kernel's name for the expander changes.
+# HELP sas_expander_info Always 1, with the expander's maker, product and revision, its SAS address, which stays the same when the kernel's name for the expander changes, and the chip it is built on by its maker, number and revision.
 # TYPE sas_expander_info gauge
-sas_expander_info{card="9500-16i",expander="expander-1:0",product="SC846-P",revision="100b",sas_address="5003048000000002",vendor="SMC"} 1
+sas_expander_info{card="9500-16i",chip="562",chip_revision="3",chip_vendor="LSI",expander="expander-1:0",product="SC846-P",revision="100b",sas_address="5003048000000002",vendor="SMC"} 1
+# HELP sas_phy_connector_info Always 1, with the connector the phy is wired to, as the enclosure the expander is in names it: ConnectorA for a cable's, Drive Connector 05 for a slot's.
+# TYPE sas_phy_connector_info gauge
+sas_phy_connector_info{card="9500-16i",connector="ConnectorA",enclosure="1:0:24:0",expander="expander-1:0",phy="12"} 1
+sas_phy_connector_info{card="9500-16i",connector="ConnectorA",enclosure="1:0:24:0",expander="expander-1:0",phy="13"} 1
+sas_phy_connector_info{card="9500-16i",connector="Drive Connector 00",enclosure="1:0:24:0",expander="expander-1:0",phy="0"} 1
 # HELP sas_phy_errors_total Errors the phy has counted on its link since it was last reset, by kind: invalid_dword, running_disparity, loss_of_dword_sync and phy_reset_problem. One that keeps growing is a cable, a connector or a slot going bad.
 # TYPE sas_phy_errors_total counter
 sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="",phy="0"} 0
@@ -170,6 +227,16 @@ sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expande
 sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="13"} 0
 sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="2"} 0
 sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="40"} 0
+# HELP sas_phy_hardware_maximum_link_rate_gigabits_per_second The most the phy can do, in gigabits a second: one set to offer less than this has been held back on purpose.
+# TYPE sas_phy_hardware_maximum_link_rate_gigabits_per_second gauge
+sas_phy_hardware_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0"} 12
+sas_phy_hardware_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="1"} 12
+sas_phy_hardware_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 12
+# HELP sas_phy_hardware_minimum_link_rate_gigabits_per_second The least the phy can do, in gigabits a second.
+# TYPE sas_phy_hardware_minimum_link_rate_gigabits_per_second gauge
+sas_phy_hardware_minimum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0"} 1.5
+sas_phy_hardware_minimum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="1"} 1.5
+sas_phy_hardware_minimum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 3
 # HELP sas_phy_info Always 1, with what is on the other end of the phy's link: device for a disk or an enclosure's own processor, expander for a further expander, upstream for the way back to the card, none for nothing the kernel lists.
 # TYPE sas_phy_info gauge
 sas_phy_info{attached="device",card="9500-16i",expander="expander-1:0",phy="0"} 1
@@ -212,11 +279,16 @@ sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="1"} 12
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="2"} 12
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="0"} 12
-sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 6
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="12"} 12
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="13"} 12
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="2"} 12
 sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="40"} 12
+# HELP sas_phy_minimum_link_rate_gigabits_per_second The least the phy is set to offer, in gigabits a second: a link that cannot come up at this or faster does not come up at all.
+# TYPE sas_phy_minimum_link_rate_gigabits_per_second gauge
+sas_phy_minimum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0"} 3
+sas_phy_minimum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="1"} 3
+sas_phy_minimum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 3
 # HELP sas_poll_duration_seconds How long the last round of each schedule took.
 # TYPE sas_poll_duration_seconds gauge
 sas_poll_duration_seconds{card="9500-16e",poll="links"} 0

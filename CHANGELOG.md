@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 (2026-10-15)
+
+More of what the kernel lists, after checking 0.1.0 against everything it offers on a real machine.
+
+- **How busy each card is**: the commands out with it when it was last asked, beside the most the kernel will have out with it at once.
+- **Each card's serial and part number**, the chip it is built on, and the versions of its settings (written as storcli writes them) and of the language it and its driver speak, on `sas_card_info`.
+- **Whether a card has slowed itself**, and which power mode it is in. *Root*.
+- **Whether each slot has power**, since an enclosure can turn a slot off.
+- **The speeds each phy is set to and can do**: the least it is set to offer, and the most and least it can, beside the most it is set to offer that was already there.
+- **The chip each expander is built on**, on `sas_expander_info`, and **each backplane's firmware version**, on `sas_enclosure_info`.
+- **Parts an enclosure expects to fail**, and whether each part's locate light is on. *Root*.
+- **Which backplane connector each lane is wired to**, as the backplane names it, so a lane with errors points at a cable. *Root*.
+- **How many commands each disk takes at once**, and how long the kernel waits for one before giving up on it.
+- **The limits each voltage and current sensor is held to**, as the share of what it should read that the enclosure gives: 0.15 is 15% above it. The enclosure never says what the sensor should read, so that is left to its name. *Root*.
+- `sas_card_info`, `sas_expander_info` and `sas_enclosure_info` have new labels, so each starts a new series once.
+
 ## 0.1.0 (2026-10-15)
 
 The first release: a metrics page for the SAS cards in a Linux machine and everything that hangs off them.

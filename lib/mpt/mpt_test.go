@@ -113,3 +113,35 @@ func TestACardsTemperatures(t *testing.T) {
 		}
 	}
 }
+
+// A card says how fast its processor runs as one of four shares of its full speed, and which power mode it is in. Anything else, or a page too
+// short to say, is not known.
+func TestACardsSpeedAndPower(t *testing.T) {
+	t.Parallel()
+
+	for code, want := range map[byte]float64{0x01: 1, 0x02: 0.5, 0x04: 0.25, 0x08: 0.125} {
+		p := page(53, 2, 0, 0)
+		p[0x13] = code
+		if got, known := mpt.Speed(p); !known || got != want {
+			t.Errorf("speed %#02x is %v (known %t), want %v", code, got, known, want)
+		}
+	}
+	if _, known := mpt.Speed(page(53, 2, 0, 0)); known {
+		t.Error("a speed of 0 is known")
+	}
+	if _, known := mpt.Speed(make([]byte, 0x13)); known {
+		t.Error("a page too short to say has a speed")
+	}
+
+	// the top bits say who set the mode, and are not the mode
+	for code, want := range map[byte]string{0x04: mpt.PowerFull, 0x45: mpt.PowerReduced, 0x86: mpt.PowerStandby, 0x01: "", 0x00: ""} {
+		p := page(53, 2, 0, 0)
+		p[0x04] = code
+		if got := mpt.PowerMode(p); got != want {
+			t.Errorf("power mode %#02x is %q, want %q", code, got, want)
+		}
+	}
+	if got := mpt.PowerMode(make([]byte, 4)); got != "" {
+		t.Errorf("a page too short to say is in power mode %q", got)
+	}
+}

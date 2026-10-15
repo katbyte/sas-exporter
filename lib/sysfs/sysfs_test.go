@@ -73,6 +73,9 @@ func TestWhatACardSaysOfItself(t *testing.T) {
 
 	tree := sysfstest.New(t)
 	first, second := tree.Card(1), tree.Card(8)
+	for file, value := range map[string]string{"board_tracer": "SP12345678", "board_assembly": "03-50134-00001", "version_product": "SAS3816", "version_nvdata_persistent": "2001000bh", "version_nvdata_default": "2001000ah", "version_mpi": "206.3d", "host_busy": "12", "can_queue": "4336"} {
+		tree.Write(first.Attrs(), file, value)
+	}
 	tree.Write(second.Attrs(), "board_name", "HBA 9500-16e")
 	tree.Write(second.Attrs(), "ioc_reset_count", "3")
 	tree.Write(second.Attrs(), "state", "recovery")
@@ -82,15 +85,18 @@ func TestWhatACardSaysOfItself(t *testing.T) {
 		t.Fatalf("cards = %+v (%v), want two", hbas, err)
 	}
 
-	want := poll.HBA{Name: card, SASAddress: "5000000000000001", Model: "HBA 9500-16i", Firmware: "32.00.00.00", BIOS: "09.27.00.00", Driver: "mpt3sas", DriverVersion: "48.100.00.00", Running: true}
+	want := poll.HBA{Name: card, SASAddress: "5000000000000001", Model: "HBA 9500-16i", Firmware: "32.00.00.00", BIOS: "09.27.00.00", Driver: "mpt3sas", DriverVersion: "48.100.00.00", Running: true, Serial: "SP12345678", Assembly: "03-50134-00001", Chip: "SAS3816", NVData: "32.01.00.11", NVDataDefault: "32.01.00.10", MPI: "206.3d"}
 	got := hbas[0]
 	if got.Resets == nil || pointer.From(got.Resets) != 0 {
 		t.Errorf("resets = %v, want a count of 0", got.Resets)
 	}
+	if got.InFlight == nil || pointer.From(got.InFlight) != 12 || got.Queue == nil || pointer.From(got.Queue) != 4336 {
+		t.Errorf("commands in flight = %v of at most %v, want 12 of 4336", got.InFlight, got.Queue)
+	}
 	if got.Slot == nil || pointer.From(got.Slot) != (poll.PCIeLink{Speed: 16, MaximumSpeed: 16, Width: 8, MaximumWidth: 8}) {
 		t.Errorf("the card's own link to the machine = %+v, want eight lanes at 16 gigatransfers a second", got.Slot)
 	}
-	got.Resets, got.Slot = nil, nil
+	got.Resets, got.Slot, got.InFlight, got.Queue = nil, nil, nil, nil
 	if got != want {
 		t.Errorf("the first card = %+v, want %+v", got, want)
 	}
@@ -98,8 +104,9 @@ func TestWhatACardSaysOfItself(t *testing.T) {
 	if other := hbas[1]; other.Name != "host8" || other.Model != "HBA 9500-16e" || other.Running || pointer.From(other.Resets) != 3 {
 		t.Errorf("the second card = %+v, want an HBA 9500-16e being reset for the fourth time", other)
 	}
-
-	_ = first
+	if other := hbas[1]; other.InFlight != nil || other.Queue != nil || other.Serial != "" {
+		t.Errorf("the second card, whose driver says nothing of how busy it is or of its serial number, = %+v, want neither", other)
+	}
 }
 
 // Only whether a card is in service is something every driver says. A card whose driver gives no model, no versions and no count of resets is
@@ -467,6 +474,56 @@ func TestASlotWithNoNumber(t *testing.T) {
 	}
 	if enclosures[0].Expander != "" {
 		t.Errorf("an enclosure on the card itself speaks through %q, want no expander", enclosures[0].Expander)
+	}
+}
+
+// What the maker put in the part of an enclosure's description left to it is on the page as text: a Supermicro backplane's firmware version.
+// An enclosure whose description is too short to have that part has none.
+func TestWhatTheMakerSaysOfAnEnclosure(t *testing.T) {
+	t.Parallel()
+
+	tree := sysfstest.New(t)
+	node := tree.Card(1)
+	node.Phys(0, 1, sysfstest.Rate12)
+	first, second := node.Enclosure(0), node.Enclosure(1)
+	first.Slot(0, "OK", "")
+	second.Slot(0, "OK", "")
+
+	// a standard description: kind, maker, product and revision, then twenty bytes of the maker's own, padded
+	inquiry := "\x0d\x00\x06\x02\x1f\x00\x00\x00" + "SMC     " + "SC846-P         " + "100b" + "x40-66.16.11.0\x00\x00\x00\x00\x00\x00"
+	tree.Write(filepath.Dir(filepath.Dir(first.Dir)), "inquiry", inquiry)
+	tree.Write(filepath.Dir(filepath.Dir(second.Dir)), "inquiry", inquiry[:30])
+
+	got, err := sysfs.New(tree.Root, sysfs.Devices{}).Enclosures(t.Context(), card)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("enclosures = %+v (%v), want two", got, err)
+	}
+	if got[0].VendorSpecific != "x40-66.16.11.0" || got[1].VendorSpecific != "" {
+		t.Errorf("the makers' own parts = %q and %q, want x40-66.16.11.0 and nothing", got[0].VendorSpecific, got[1].VendorSpecific)
+	}
+}
+
+// Whether the enclosure has power to each slot, which it can turn off: on, off, or nothing for an enclosure whose kernel does not say.
+func TestWhetherASlotHasPower(t *testing.T) {
+	t.Parallel()
+
+	tree := sysfstest.New(t)
+	node := tree.Card(1)
+	node.Phy(0, sysfstest.Rate12)
+	shelf := node.Enclosure(0)
+	tree.Write(shelf.Slot(0, "OK", ""), "power_status", "on")
+	tree.Write(shelf.Slot(1, "not installed", ""), "power_status", "off")
+	shelf.Slot(2, "OK", "")
+
+	got, err := sysfs.New(tree.Root, sysfs.Devices{}).Enclosures(t.Context(), card)
+	if err != nil || len(got) != 1 || len(got[0].Slots) != 3 {
+		t.Fatalf("enclosures = %+v (%v), want one of three slots", got, err)
+	}
+
+	for number, want := range map[int]*bool{0: new(true), 1: new(false), 2: nil} {
+		if powered := got[0].Slots[number].Powered; (powered == nil) != (want == nil) || pointer.From(powered) != pointer.From(want) {
+			t.Errorf("slot %d powered = %v, want %v", number, pointer.From(powered), want)
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package ses_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -251,8 +252,8 @@ func limits(e *ses.Element) (held [4]float64, set [4]bool, some bool) {
 }
 
 // An enclosure holds each temperature sensor to four limits, given as temperatures are and in a page laid out as the statuses are. A limit it does
-// not set is left out rather than read as a temperature, and a sensor with none set has no limits at all. Voltage sensors have limits too, but as
-// a share of what they should read, which the enclosure does not say: those are not given.
+// not set is left out rather than read as a temperature, and a sensor with none set has no limits at all. A voltage sensor's four, and a current
+// sensor's two high ones, are a share of what it should read, in steps of half a percent: above it for the high ones, below it for the low.
 func TestTheLimitsASensorIsHeldTo(t *testing.T) {
 	t.Parallel()
 
@@ -264,6 +265,8 @@ func TestTheLimitsASensorIsHeldTo(t *testing.T) {
 			{Name: "Spare", Status: sestest.Temperature(30)},
 		}},
 		{Kind: ses.KindVoltageSensor, Things: []sestest.Thing{{Name: "12V", Status: sestest.Hundredths(1204), Limits: [4]byte{30, 20, 20, 30}}}},
+		// a current sensor has no low limits, whatever the enclosure puts where they would be
+		{Kind: ses.KindCurrentSensor, Things: []sestest.Thing{{Name: "12V", Status: sestest.Hundredths(1850), Limits: [4]byte{10, 7, 9, 9}}}},
 	}}
 	e := parsed(t, s)
 
@@ -286,8 +289,11 @@ func TestTheLimitsASensorIsHeldTo(t *testing.T) {
 	if _, _, some := limits(element(t, &e, ses.KindTemperatureSensor, 2)); some {
 		t.Error("a sensor the enclosure sets no limits for has some")
 	}
-	if _, _, some := limits(element(t, &e, ses.KindVoltageSensor, 0)); some {
-		t.Error("a voltage sensor has limits in degrees")
+	if held, set, some := limits(element(t, &e, ses.KindVoltageSensor, 0)); !some || set != [4]bool{true, true, true, true} || held != [4]float64{0.15, 0.1, -0.1, -0.15} {
+		t.Errorf("the 12 volt sensor is held to %v (set %v, some %t), want 15%% and 10%% above what it should read and 10%% and 15%% below", held, set, some)
+	}
+	if held, set, some := limits(element(t, &e, ses.KindCurrentSensor, 0)); !some || set != [4]bool{true, true, false, false} || held != [4]float64{0.05, 0.035, 0, 0} {
+		t.Errorf("the current sensor is held to %v (set %v, some %t), want 5%% and 3.5%% above what it should read and no low limits", held, set, some)
 	}
 	if _, _, some := limits(element(t, &e, ses.KindArrayDeviceSlot, 0)); some {
 		t.Error("a slot has limits")
@@ -327,4 +333,139 @@ func TestAPageOfLimitsThatDoesNotFit(t *testing.T) {
 			t.Errorf("%s gave a sensor limits", name)
 		}
 	}
+}
+
+// Any kind of element can say the enclosure expects it to fail, and each kind reported beside the slots keeps its locate light in the same place.
+// A kind with no light has no reading of one.
+func TestAnElementExpectedToFailOrBeingPointedOut(t *testing.T) {
+	t.Parallel()
+
+	e := parsed(t, &sestest.Shelf{Groups: []sestest.Group{
+		{Kind: ses.KindCooling, Things: []sestest.Thing{{Name: "Fan1", Status: [4]byte{0x41, 0x80, 0, 0}}, {Name: "Fan2", Status: sestest.OK}}},
+		{Kind: ses.Kind(0x0c), Things: []sestest.Thing{{Name: "Panel", Status: [4]byte{0x01, 0x80, 0, 0}}}},
+	}})
+
+	fan := element(t, &e, ses.KindCooling, 0)
+	if on, has := fan.Locate(); !fan.PredictedFailure() || !on || !has {
+		t.Errorf("the first fan is expected to fail %t with its light on %t (has one %t), want all three", fan.PredictedFailure(), on, has)
+	}
+	other := element(t, &e, ses.KindCooling, 1)
+	if on, has := other.Locate(); other.PredictedFailure() || on || !has {
+		t.Errorf("the second fan is expected to fail %t with its light on %t (has one %t), want a light that is off and nothing expected", other.PredictedFailure(), on, has)
+	}
+	if _, has := element(t, &e, ses.Kind(0x0c), 0).Locate(); has {
+		t.Error("a display has a locate light read from where a fan keeps its")
+	}
+}
+
+// An enclosure says which of its connectors each phy of its expander is wired to, by the connector's place among its elements. It may count that
+// place three ways, and says which; each gives the same connectors. A phy wired to none, or whose index lands on no connector, is left out.
+func TestWhichConnectorEachLaneIsWiredTo(t *testing.T) {
+	t.Parallel()
+
+	expander := [8]byte{0x50, 0x03, 0x04, 0x80, 0, 0, 0, 0x3f}
+	for counting, connectors := range map[byte][]byte{
+		// ConnectorA and ConnectorB are the first two SAS connectors, after a slot and an expander, each kind with its own status before its things
+		0: {0, 0, 1, 0xff, 7},
+		1: {5, 5, 6, 0xff, 3},
+		2: {2, 2, 3, 0xff, 1},
+	} {
+		s := &sestest.Shelf{Counting: counting, Groups: []sestest.Group{
+			{Kind: ses.KindArrayDeviceSlot, Things: []sestest.Thing{{Name: "Slot00", Status: sestest.OK}}},
+			{Kind: ses.KindSASExpander, Things: []sestest.Thing{{Name: "Expander", Status: sestest.OK}}},
+			{Kind: ses.KindSASConnector, Things: []sestest.Thing{{Name: "ConnectorA", Status: sestest.OK}, {Name: "ConnectorB", Status: sestest.OK}}},
+		}, Wiring: []sestest.Wiring{{Expander: 0, Address: expander, Connectors: connectors}}}
+		e := parsed(t, s)
+
+		configuration, _, _ := s.Pages()
+		lanes, err := e.Lanes(configuration, s.Additional())
+		if err != nil {
+			t.Fatalf("counting %d: %v", counting, err)
+		}
+
+		var got []string
+		for _, lane := range lanes {
+			got = append(got, fmt.Sprintf("%s %d %s", lane.Expander, lane.Phy, e.Elements[lane.Connector].Name))
+		}
+		want := []string{"500304800000003f 0 ConnectorA", "500304800000003f 1 ConnectorA", "500304800000003f 2 ConnectorB"}
+		if strings.Join(got, ", ") != strings.Join(want, ", ") {
+			t.Errorf("counting %d: lanes %v, want %v", counting, got, want)
+		}
+	}
+}
+
+// An older enclosure does not say which element each description is for, and lists them in the order of the elements that have one: a slot's
+// first, then the expander's.
+func TestLanesFromAnEnclosureThatDoesNotSayWhichElement(t *testing.T) {
+	t.Parallel()
+
+	s := &sestest.Shelf{Unindexed: true, Groups: []sestest.Group{
+		{Kind: ses.KindCooling, Things: []sestest.Thing{{Name: "Fan1", Status: sestest.OK}}},
+		{Kind: ses.KindSASExpander, Things: []sestest.Thing{{Name: "Expander", Status: sestest.OK}}},
+		{Kind: ses.KindSASConnector, Things: []sestest.Thing{{Name: "ConnectorA", Status: sestest.OK}}},
+	}, Wiring: []sestest.Wiring{{Address: [8]byte{0x50, 0, 0, 0, 0, 0, 0, 0x01}, Connectors: []byte{0xff, 0}}}}
+	e := parsed(t, s)
+	configuration, _, _ := s.Pages()
+
+	lanes, err := e.Lanes(configuration, s.Additional())
+	if err != nil || len(lanes) != 1 || lanes[0].Phy != 1 || e.Elements[lanes[0].Connector].Name != "ConnectorA" || lanes[0].Expander != "5000000000000001" {
+		t.Errorf("lanes = %+v (%v), want phy 1 wired to ConnectorA", lanes, err)
+	}
+}
+
+// A page of more about things from another enclosure, or one that ends inside a description, is not read.
+func TestAPageOfLanesThatDoesNotFit(t *testing.T) {
+	t.Parallel()
+
+	s := &sestest.Shelf{Groups: []sestest.Group{
+		{Kind: ses.KindSASExpander, Things: []sestest.Thing{{Name: "Expander", Status: sestest.OK}}},
+		{Kind: ses.KindSASConnector, Things: []sestest.Thing{{Name: "ConnectorA", Status: sestest.OK}}},
+	}, Wiring: []sestest.Wiring{{Connectors: []byte{0, 0}}}}
+	e := parsed(t, s)
+	configuration, _, _ := s.Pages()
+
+	changed := s.Additional()
+	changed[7]++
+	if _, err := e.Lanes(configuration, changed); err == nil {
+		t.Error("a page from an enclosure that has since changed was read")
+	}
+
+	// a description too short to say which element it is for, last on the page, is passed over rather than read past
+	short := s.Additional()
+	short = append(short, 0x16, 0)
+	short[3] += 2
+	if lanes, err := e.Lanes(configuration, short); err != nil || len(lanes) != 2 {
+		t.Errorf("a page ending in an empty description gives %+v (%v), want the two lanes before it", lanes, err)
+	}
+
+	cut := s.Additional()
+	cut[3] -= 2
+	if _, err := e.Lanes(configuration, cut[:len(cut)-2]); err == nil {
+		t.Error("a page that ends inside a description was read")
+	}
+}
+
+// No page an enclosure answers with, however garbled, stops the program: each is read only as far as it goes.
+func FuzzPages(f *testing.F) {
+	s := &sestest.Shelf{Groups: []sestest.Group{
+		{Kind: ses.KindArrayDeviceSlot, Things: []sestest.Thing{{Name: "Slot00", Status: sestest.OK}}},
+		{Kind: ses.KindSASExpander, Things: []sestest.Thing{{Name: "Expander", Status: sestest.OK}}},
+		{Kind: ses.KindTemperatureSensor, Things: []sestest.Thing{{Name: "Backplane", Status: sestest.Temperature(30), Limits: sestest.Limits(50, 46, 10, 0)}}},
+		{Kind: ses.KindSASConnector, Things: []sestest.Thing{{Name: "ConnectorA", Status: sestest.OK}}},
+	}, Wiring: []sestest.Wiring{{Connectors: []byte{0, 0xff}}}}
+	configuration, status, names := s.Pages()
+	f.Add(configuration, status, names, s.Limits(), s.Additional())
+
+	f.Fuzz(func(_ *testing.T, configuration, status, names, limits, additional []byte) {
+		e, err := ses.Parse(configuration, status, names)
+		if err != nil {
+			return
+		}
+
+		_ = e.Limit(configuration, limits)
+		_, _ = e.Lanes(configuration, additional)
+		for i := range e.Elements {
+			_, _ = e.Elements[i].Limits()
+		}
+	})
 }

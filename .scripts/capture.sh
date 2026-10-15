@@ -21,8 +21,8 @@ set -u
 sys="${1:-/sys}"
 
 # the files that are opened, by name: the ones sas-exporter reads and no others
-read_names=' board_name version_fw version_bios host_sas_address ioc_reset_count state proc_name unique_id phy_identifier negotiated_linkrate maximum_linkrate sas_address invalid_dword_count running_disparity_error_count loss_of_dword_sync_count phy_reset_problem_count vendor_id product_id product_rev vendor model rev type wwid iorequest_cnt iodone_cnt ioerr_cnt iotmo_cnt id status fault locate slot '
-hex_names=' vpd_pg80 '
+read_names=' board_name version_fw version_bios host_sas_address ioc_reset_count state proc_name unique_id phy_identifier negotiated_linkrate maximum_linkrate sas_address invalid_dword_count running_disparity_error_count loss_of_dword_sync_count phy_reset_problem_count vendor_id product_id product_rev vendor model rev type wwid iorequest_cnt iodone_cnt ioerr_cnt iotmo_cnt id status fault locate slot host_busy can_queue board_tracer board_assembly version_product version_nvdata_persistent version_nvdata_default version_mpi minimum_linkrate maximum_linkrate_hw minimum_linkrate_hw component_vendor_id component_id component_revision_id queue_depth timeout power_status '
+hex_names=' vpd_pg80 inquiry '
 # the card's own link to the machine, which the kernel keeps beside the card
 slot_names=' current_link_speed current_link_width max_link_speed max_link_width '
 
@@ -107,7 +107,7 @@ for class in "$sys"/class/enclosure/*; do
 		continue
 	fi
 
-	for page in 01 02 05 07; do
+	for page in 01 02 05 07 0a; do
 		if hex=$(sg_ses --page="0x$page" -rr "/dev/$device" 2>/dev/null | od -An -v -tx1 | tr -d ' \n') && [ -n "$hex" ]; then
 			printf 's\t%s\t%s\n' "$device/$page" "$hex"
 		else

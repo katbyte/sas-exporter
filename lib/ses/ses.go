@@ -21,6 +21,8 @@ const (
 	PageNames byte = 0x07
 	// PageLimits says the limits the enclosure holds each one to, four bytes apiece in the same order. Not every enclosure has it.
 	PageLimits byte = 0x05
+	// PageAdditional says more of some of its things: for an expander, which connector each of its phys is wired to. Not every enclosure has it.
+	PageAdditional byte = 0x0a
 )
 
 // Where things are in every page: what page it is, then how long, then a number that changes whenever what the enclosure holds does.
@@ -159,8 +161,9 @@ func (e *Enclosure) Limit(configuration, limits []byte) error {
 	return nil
 }
 
-// Limits is the limits an enclosure holds one of its temperature sensors to, in degrees: past a warning it calls the sensor not quite right, and
-// past a critical one, critical. A limit the enclosure does not set is nil.
+// Limits is the limits an enclosure holds one of its sensors to: past a warning it calls the sensor not quite right, and past a critical one,
+// critical. A temperature sensor's are in degrees. A voltage or a current sensor's are a share of what it should read, which the enclosure does not
+// say: 0.15 is 15% above it, and -0.15, for a low limit, 15% below. A limit the enclosure does not set is nil.
 type Limits struct {
 	HighCritical *float64
 	HighWarning  *float64
@@ -168,23 +171,42 @@ type Limits struct {
 	LowCritical  *float64
 }
 
-// Limits is the limits a temperature sensor is held to, and false for a sensor with none and for anything else. A voltage or a current sensor has
-// limits too, but as a share of what it should read, which the enclosure does not say, so they cannot be held against what it does read.
+// Limits is the limits a sensor is held to, and false for a sensor with none and for anything that is not a sensor. A current sensor has only
+// high limits.
 func (e *Element) Limits() (Limits, bool) {
-	if e.Kind != KindTemperatureSensor || e.limits == [statusSize]byte{} {
+	if e.limits == [statusSize]byte{} {
 		return Limits{}, false
 	}
 
-	// a limit is given as a temperature is, and 0 for one that is not set
-	degrees := func(given byte) *float64 {
-		if given == 0 {
-			return nil
-		}
+	switch e.Kind {
+	case KindTemperatureSensor:
+		return Limits{HighCritical: degrees(e.limits[0]), HighWarning: degrees(e.limits[1]), LowWarning: degrees(e.limits[2]), LowCritical: degrees(e.limits[3])}, true
+	case KindVoltageSensor:
+		return Limits{HighCritical: share(e.limits[0], 1), HighWarning: share(e.limits[1], 1), LowWarning: share(e.limits[2], -1), LowCritical: share(e.limits[3], -1)}, true
+	case KindCurrentSensor:
+		return Limits{HighCritical: share(e.limits[0], 1), HighWarning: share(e.limits[1], 1)}, true
+	default:
+		return Limits{}, false
+	}
+}
 
-		return new(float64(given) - celsiusOffset)
+// degrees is a temperature limit, given as a temperature is, and nil for 0, which is a limit not set.
+func degrees(given byte) *float64 {
+	if given == 0 {
+		return nil
 	}
 
-	return Limits{HighCritical: degrees(e.limits[0]), HighWarning: degrees(e.limits[1]), LowWarning: degrees(e.limits[2]), LowCritical: degrees(e.limits[3])}, true
+	return new(float64(given) - celsiusOffset)
+}
+
+// share is a voltage or a current limit, given in steps of half a percent of what the sensor should read, above it or below it as direction says,
+// and nil for 0, which is a limit not set.
+func share(given byte, direction float64) *float64 {
+	if given == 0 {
+		return nil
+	}
+
+	return new(direction * float64(given) / 200)
 }
 
 // kind is how many of one kind of thing an enclosure holds.
@@ -335,6 +357,22 @@ func (e *Element) Fault() bool {
 		return e.Status[2]&0x02 != 0
 	default:
 		return false
+	}
+}
+
+// PredictedFailure says the enclosure expects the element to fail, which any kind of element can say.
+func (e *Element) PredictedFailure() bool {
+	return e.Status[0]&0x40 != 0
+}
+
+// Locate says whether the element's locate light is on, and false for a kind that has none: every kind reported beside the slots keeps it in the
+// same place.
+func (e *Element) Locate() (on, has bool) {
+	switch e.Kind {
+	case KindPowerSupply, KindCooling, KindTemperatureSensor, KindVoltageSensor, KindCurrentSensor, KindSASExpander, KindSASConnector, KindEnclosure:
+		return e.Status[1]&0x80 != 0, true
+	default:
+		return false, false
 	}
 }
 

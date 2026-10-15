@@ -15,7 +15,7 @@ BEGIN {
 	OFS = "\t"
 
 	# the files sas-exporter reads, by name
-	split("board_name version_fw version_bios host_sas_address ioc_reset_count state proc_name unique_id version current_link_speed current_link_width max_link_speed max_link_width phy_identifier negotiated_linkrate maximum_linkrate sas_address invalid_dword_count running_disparity_error_count loss_of_dword_sync_count phy_reset_problem_count vendor_id product_id product_rev vendor model rev type wwid iorequest_cnt iodone_cnt ioerr_cnt iotmo_cnt id status fault locate slot vpd_pg80", names, " ")
+	split("board_name version_fw version_bios host_sas_address ioc_reset_count state proc_name unique_id version current_link_speed current_link_width max_link_speed max_link_width phy_identifier negotiated_linkrate maximum_linkrate sas_address invalid_dword_count running_disparity_error_count loss_of_dword_sync_count phy_reset_problem_count vendor_id product_id product_rev vendor model rev type wwid iorequest_cnt iodone_cnt ioerr_cnt iotmo_cnt id status fault locate slot vpd_pg80 host_busy can_queue board_tracer board_assembly version_product version_nvdata_persistent version_nvdata_default version_mpi minimum_linkrate maximum_linkrate_hw minimum_linkrate_hw component_vendor_id component_id component_revision_id queue_depth timeout power_status inquiry", names, " ")
 	for (i in names) read[names[i]] = 1
 
 	for (i = 32; i < 127; i++) code[sprintf("%c", i)] = i
@@ -140,7 +140,14 @@ $1 == "s" {
 
 $1 == "!" { sub(/.*: /, "", $3); print; next }
 
+# a description is kept for an enclosure, whose maker puts its firmware version there, and left out for anything else: a disk puts its serial
+# number there
+$1 == "x" && name == "inquiry" { if (substr($3, 1, 2) == "0d") print; next }
+
 $1 == "x" { $3 = serial($3); print; next }
+
+# the serial number of a card is text, and is numbered apart from those of the disks so theirs stay as they were
+$1 == "f" && name == "board_tracer" { $3 = sprintf("C%0" (length($3) - 1) "d", ++cards); print; next }
 
 $1 == "f" && $3 ~ /^0x[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/ { $3 = "0x" address(substr($3, 3)); print; next }
 

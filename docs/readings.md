@@ -9,16 +9,24 @@ Readings marked *root* are only there when the program [runs as root](root.md).
 | Reading | Labels | What it says |
 |---|---|---|
 | `sas_card_up` | | 1 while the kernel has the card in service, 0 while it is being reset or has gone |
-| `sas_card_info` | `model`, `firmware`, `bios`, `driver`, `driver_version`, `sas_address`, `scsi_host` | always 1; what the card is and what it runs |
+| `sas_card_info` | `model`, `firmware`, `bios`, `driver`, `driver_version`, `sas_address`, `scsi_host`, `serial`, `assembly`, `chip`, `nvdata`, `nvdata_default`, `mpi` | always 1; what the card is and what it runs |
 | `sas_card_resets_total` | | times the card's firmware has restarted since its driver loaded |
+| `sas_card_commands_in_flight` | | commands sent to the card and not yet back, when it was last asked |
+| `sas_card_commands_in_flight_limit` | | the most the kernel will have out with the card at once |
 | `sas_card_temperature_celsius` | `sensor` | the card's own temperature: `chip` or `board`. *Root* |
+| `sas_card_speed_ratio` | | how fast the card's processor runs, as a share of full speed. *Root* |
+| `sas_card_power_mode` | `mode` | always 1; `full`, `reduced` or `standby`. *Root* |
 | `sas_card_pcie_link_speed_gigatransfers_per_second` | | speed of the card's own slot: 16 is PCIe 4.0, 8 is 3.0 |
 | `sas_card_pcie_maximum_link_speed_gigatransfers_per_second` | | the fastest the card could run |
 | `sas_card_pcie_link_width` | | lanes the slot gave the card |
 | `sas_card_pcie_maximum_link_width` | | lanes the card could use |
 
 - A slot slower or narrower than the maximum is a card in the wrong slot, or not seated.
-- An HBA 9500 gives only the `chip` temperature.
+- An HBA 9500 gives only the `chip` temperature, which storcli calls the ROC temperature.
+- A speed below 1 is a card that has slowed itself, to keep cool or to save power.
+- `nvdata` is the version of the settings the card keeps, `nvdata_default` of the ones it came with, written as storcli writes them: `32.01.00.11`. They differ once the card's settings have been changed.
+- Commands in flight is a glimpse once a minute, not an average: it shows a card that stays busy, not a burst.
+- A disk's queue fills long before a card's. A 9500 takes 4,336 commands at once, more than 36 disks at 64 each can send it, so `sas_device_queue_depth` says more.
 
 ### What a card goes by
 
@@ -45,14 +53,20 @@ A phy is one end of one lane. A card has one for each lane it can drive, and so 
 
 | Reading | Labels | What it says |
 |---|---|---|
-| `sas_expander_info` | `expander`, `vendor`, `product`, `revision`, `sas_address` | always 1; one for each expander |
+| `sas_expander_info` | `expander`, `vendor`, `product`, `revision`, `sas_address`, `chip_vendor`, `chip`, `chip_revision` | always 1; one for each expander, and the chip it is built on |
 | `sas_phy_info` | `expander`, `phy`, `attached` | always 1; what is on the other end of the link |
 | `sas_phy_link_state` | `expander`, `phy`, `state` | always 1; how the link is doing |
 | `sas_phy_link_rate_gigabits_per_second` | `expander`, `phy` | the speed the link came up at: 12, 6, 3 or 1.5. 0 with no link |
 | `sas_phy_maximum_link_rate_gigabits_per_second` | `expander`, `phy` | the most the phy is set to offer |
+| `sas_phy_minimum_link_rate_gigabits_per_second` | `expander`, `phy` | the least the phy is set to offer |
+| `sas_phy_hardware_maximum_link_rate_gigabits_per_second` | `expander`, `phy` | the most the phy can do |
+| `sas_phy_hardware_minimum_link_rate_gigabits_per_second` | `expander`, `phy` | the least the phy can do |
 | `sas_phy_errors_total` | `expander`, `phy`, `error` | what the phy has counted going wrong on its link |
+| `sas_phy_connector_info` | `expander`, `phy`, `enclosure`, `connector` | always 1; the backplane connector the phy is wired to. *Root* |
 
 `state` is `up`, `down`, `disabled`, `failed`, `spinup_hold` or `other`. `failed` is two ends that could not agree a speed. `spinup_hold` is a disk waiting to be told to spin up.
+
+A phy set to offer less than it can do has been held back on purpose. A phy that does not say what speeds it can do has none of those four: a card's spare phys past its connectors, and an expander's unwired ones.
 
 ### What is on the other end
 
@@ -66,6 +80,8 @@ A phy is one end of one lane. A card has one for each lane it can drive, and so 
 | `none` | nothing the kernel lists: an empty slot, or a phy the expander uses itself |
 
 A cable between a card and a backplane is the card's phys with `expander` on them and the backplane's with `upstream`.
+
+`sas_phy_connector_info` names the connector on the backplane each of its phys is wired to, as the backplane names it: `ConnectorA` for a cable's, `Drive Connector 05` for a slot's. That says which cable a lane with errors is in. Only a backplane that says so has it.
 
 The kernel lists what is below a phy and never what is above it, so `upstream` is worked out. It is an expander's lowest-numbered phys that have a link and nothing below them, as many as the port leading to that expander is wide. An expander's phys for its own use are numbered after the ones with a connector, which keeps them out of the count.
 
@@ -94,6 +110,8 @@ The kernel lists what is below a phy and never what is above it, so `upstream` i
 | `sas_device_commands_completed_total` | `serial`, `disk` | commands the disk has answered, well or badly |
 | `sas_device_command_errors_total` | `serial`, `disk` | commands answered with anything but success |
 | `sas_device_command_timeouts_total` | `serial`, `disk` | commands the disk never answered |
+| `sas_device_queue_depth` | `serial`, `disk` | the most commands the kernel will have out with the disk at once |
+| `sas_device_timeout_seconds` | `serial`, `disk` | how long the kernel waits for an answer before giving up on a command |
 
 - A disk goes by its `serial`. That is what joins it to other tools, such as [smartctl_exporter](https://github.com/prometheus-community/smartctl_exporter) for its SMART data.
 - Nothing of that kind is repeated here. `sas_device_info` ties a serial number to a slot and a lane.
@@ -101,27 +119,35 @@ The kernel lists what is below a phy and never what is above it, so `upstream` i
 - So watch for one disk climbing faster than its neighbours.
 - Timeouts have no such noise. Any at all is worth a look.
 - Fewer commands answered than sent, for long, is a command stuck with the disk.
+- Sent less answered near `sas_device_queue_depth`, for long, is a disk given more than it can take.
 
 ## Enclosures
 
 | Reading | Labels | What it says |
 |---|---|---|
-| `sas_enclosure_info` | `enclosure`, `vendor`, `product`, `revision`, `id`, `expander` | always 1; one for each enclosure |
+| `sas_enclosure_info` | `enclosure`, `vendor`, `product`, `revision`, `id`, `expander`, `vendor_specific` | always 1; one for each enclosure |
 | `sas_enclosure_slots` | `enclosure` | how many slots it has |
 | `sas_enclosure_slot_status` | `enclosure`, `slot`, `status` | always 1; `ok`, `not_installed` for an empty slot, or a fault |
 | `sas_enclosure_slot_fault` | `enclosure`, `slot` | 1 when the slot's fault light is asked for, or a fault is sensed |
 | `sas_enclosure_slot_locate` | `enclosure`, `slot` | 1 when the slot's locate light is on |
+| `sas_enclosure_slot_powered` | `enclosure`, `slot` | 1 when the enclosure has power to the slot, 0 when it has turned it off |
 | `sas_enclosure_element_status` | `enclosure`, `type`, `element`, `status` | always 1; each part that is not a slot. *Root* |
 | `sas_enclosure_element_fault` | `enclosure`, `type`, `element` | 1 when the enclosure reports the part as failed. *Root* |
+| `sas_enclosure_element_predicted_failure` | `enclosure`, `type`, `element` | 1 when the enclosure expects the part to fail. *Root* |
+| `sas_enclosure_element_locate` | `enclosure`, `type`, `element` | 1 when the part's locate light is on. *Root* |
 | `sas_enclosure_fan_speed_rpm` | `enclosure`, `element` | how fast a fan is turning. *Root* |
 | `sas_enclosure_temperature_celsius` | `enclosure`, `element` | what a temperature sensor reads. *Root* |
 | `sas_enclosure_temperature_limit_celsius` | `enclosure`, `element`, `limit` | a limit the enclosure holds that sensor to. *Root* |
 | `sas_enclosure_voltage_volts` | `enclosure`, `element` | what a voltage sensor reads. *Root* |
+| `sas_enclosure_voltage_limit_ratio` | `enclosure`, `element`, `limit` | a limit the enclosure holds that sensor to, as a share of what it should read. *Root* |
 | `sas_enclosure_current_amperes` | `enclosure`, `element` | what a current sensor reads. *Root* |
+| `sas_enclosure_current_limit_ratio` | `enclosure`, `element`, `limit` | a limit the enclosure holds that sensor to, as a share of what it should read. *Root* |
 | `sas_enclosure_power_supply_problem` | `enclosure`, `element`, `problem` | 1 when a power supply is in that trouble. *Root* |
 | `sas_enclosure_condition` | `enclosure`, `condition` | the enclosure's own summary of itself. *Root* |
 
 `status` is `ok`, `not_installed`, `critical`, `non_critical`, `unrecoverable`, `unavailable`, `unknown`, `unsupported` or `no_access_allowed`.
+
+`vendor_specific` is whatever the enclosure's maker put in the part of its description left to them. A Supermicro backplane puts its firmware version there, `x40-66.16.11.0`, as storcli shows it.
 
 ### What an enclosure measures
 
@@ -136,22 +162,24 @@ An enclosure keeps a list of everything in it. The slots are the first readings 
 | `cooling` | a fan | its speed |
 | `power_supply` | a power supply | its problems |
 | `temperature_sensor` | a temperature sensor | its temperature and limits |
-| `voltage_sensor` | a voltage sensor | its voltage |
-| `current_sensor` | a current sensor | its current |
+| `voltage_sensor` | a voltage sensor | its voltage and limits |
+| `current_sensor` | a current sensor | its current and limits |
 | `sas_expander`, `sas_connector`, `enclosure` and the like | the enclosure's other parts | nothing more |
 
 - A part that is not fitted has a status and nothing measured. A stopped fan reads 0; a missing fan has no speed.
 - A backplane only knows the fans and power supplies plugged into it, not the ones on the motherboard.
 - A Supermicro backplane names a power supply by its serial number. A swapped supply is a new `element`.
+- A locate light is read for fans, power supplies, sensors, expanders, connectors and the enclosure itself. The JBOD backplanes this was written on report both power supplies' lights as on, all the time.
 
 ### Limits
 
 `limit` is `high_critical`, `high_warning`, `low_warning` or `low_critical`.
 
 - An enclosure holds each temperature sensor to limits of its own. A backplane's chip may be allowed 100 degrees where the board around it is allowed 46.
+- A voltage or current limit is a share of what the sensor should read, as the enclosure gives it: 0.15 is 15% above, -0.15 is 15% below. The enclosure never says what the sensor should read, so it is not guessed; the sensor's name usually says, `12VEXP` or `3.3VCC`.
+- A current sensor has only high limits.
 - A limit the enclosure does not set is left off.
 - An enclosure that does not give limits has none on the page.
-- Voltage limits are not reported. The enclosure gives them as a share of what the sensor should read, and does not say what that is.
 
 ### Power supply problems
 
@@ -177,6 +205,17 @@ It is the enclosure's own word on itself, not worked out from its parts. Some sa
 - They can change at a reboot or when a cable is moved.
 - Each info reading also carries what does not change: the expander's `sas_address`, the enclosure's `id`, the disk's `serial`.
 - The number those names begin with is the kernel's number for the card. `expander-1:0` and `1:0:24:0` are behind `host1`.
+
+## Left out on purpose
+
+The kernel lists a few more things that would say nothing, or say it wrongly:
+
+- A slot's activity light. The kernel's `active` file gives back what was last written to it, never what the light is doing.
+- A phy's device type, protocols and whether it is enabled. They follow from what the phy is on, which `expander` says, and a phy switched off is `disabled`.
+- An expander's `level`. It reads 1 for an expander chained behind another, too.
+- A card's `fw_queue_depth`. It is the limit plus the few the driver keeps for itself.
+- What storcli shows of a card's memory errors, its firmware package check and its PSoC version. A trace of storcli on an HBA 9500 shows it reading pages of the card's that Broadcom has not published, IO Unit page 12, Manufacturing pages 9 and 30 and an extended page of its own, and reading from the card's flash. Without their layout there is no telling which bytes are which, and a 9500 has no memory of its own to count errors in.
+- The chip revision storcli shows, `A0`. The kernel gives only the number it is made from, which says nothing more.
 
 ## Polling
 

@@ -3,10 +3,12 @@
 package sysfstest
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -247,6 +249,15 @@ func (n *Node) Expander(phys ...int) *Node {
 	n.tree.Write(filepath.Join(below.Dir, "sas_device", name), "sas_address", below.address)
 
 	return below
+}
+
+// Address is the node's SAS address as the eight bytes an enclosure gives it in, for a test's made-up enclosure to name its expander by.
+func (n *Node) Address() [8]byte {
+	var out [8]byte
+	raw, _ := hex.DecodeString(strings.TrimPrefix(n.address, "0x"))
+	copy(out[:], raw)
+
+	return out
 }
 
 // Info is the directory an expander says what it is in: its maker, its product and its revision.

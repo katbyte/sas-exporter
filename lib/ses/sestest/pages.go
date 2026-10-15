@@ -30,6 +30,21 @@ type Shelf struct {
 	// something only worth knowing.
 	Conditions byte
 	Groups     []Group
+	// Wiring is which connector each phy of each of the enclosure's expanders is wired to, for its page of more about things, and Counting how
+	// that page numbers elements: 0 its SAS connectors alone, 1 every status in the page, 2 every element's own.
+	Wiring   []Wiring
+	Counting byte
+	// Unindexed leaves out of each description which element it is for, as an older enclosure does: the descriptions are then in the order of the
+	// elements that have one.
+	Unindexed bool
+}
+
+// Wiring is one expander in a made-up enclosure: which of its SAS expander elements it is, its address, and for each of its phys the index of
+// the connector it is wired to, or 0xff for none, counted as the shelf counts.
+type Wiring struct {
+	Expander   int
+	Address    [8]byte
+	Connectors []byte
 }
 
 // The statuses a test gives a thing. Each is the four bytes a real enclosure gives.
@@ -110,4 +125,40 @@ func (s *Shelf) Limits() []byte {
 	}
 
 	return s.header(ses.PageLimits, 0, limits)
+}
+
+// Additional is the page the enclosure says more of its things in: a description of each expander's phys, saying which element each is.
+func (s *Shelf) Additional() []byte {
+	var body []byte
+	for _, wired := range s.Wiring {
+		// where the expander is, counted as the shelf counts: among every status in the page, or among every element's own
+		index, seen := 0, 0
+		for _, group := range s.Groups {
+			if s.Counting == 1 {
+				index++
+			}
+			if group.Kind == ses.KindSASExpander && wired.Expander < seen+len(group.Things) {
+				index += wired.Expander - seen
+
+				break
+			}
+			if group.Kind == ses.KindSASExpander {
+				seen += len(group.Things)
+			}
+			index += len(group.Things)
+		}
+
+		described := append([]byte{byte(len(wired.Connectors)), 0x40, 0, 0}, wired.Address[:]...) //nolint:gosec // G115: a test's own few phys
+		for _, connector := range wired.Connectors {
+			described = append(described, connector, 0xff)
+		}
+		if s.Unindexed {
+			body = append(body, 0x06, byte(len(described))) //nolint:gosec // G115: a test's own short description
+		} else {
+			body = append(body, 0x16, byte(len(described)+2), s.Counting, byte(index)) //nolint:gosec // G115: a test's own short description and few elements
+		}
+		body = append(body, described...)
+	}
+
+	return s.header(ses.PageAdditional, 0, body)
 }

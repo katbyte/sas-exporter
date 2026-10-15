@@ -125,7 +125,7 @@ func TestTheImageReadsARealMachine(t *testing.T) {
 		t.Fatalf("the image never served a page with both cards and all they have:\n%s\nits log:\n%s", page, logs)
 	}
 
-	for reading, want := range map[string]int{"sas_expander_info": sysfstest.NASExpanders, "sas_device_info": sysfstest.NASDisks, "sas_enclosure_info": sysfstest.NASEnclosures, "sas_phy_errors_total": 4 * (sysfstest.NASPhys - sysfstest.NASRefused)} {
+	for reading, want := range map[string]int{"sas_expander_info": sysfstest.NASExpanders, "sas_device_info": sysfstest.NASDisks, "sas_device_queue_depth": sysfstest.NASDisks, "sas_enclosure_info": sysfstest.NASEnclosures, "sas_enclosure_slot_powered": sysfstest.NASSlots, "sas_phy_errors_total": 4 * (sysfstest.NASPhys - sysfstest.NASRefused)} {
 		if got := count(t, page, reading); got != want {
 			t.Errorf("%d readings of %s, want %d", got, reading, want)
 		}
@@ -179,7 +179,7 @@ func TestTheImageReadsARealMachine(t *testing.T) {
 	if up, _ := metricstest.One(t, down, "sas_card_up", map[string]string{"card": "9500-16i"}); up != 1 || !strings.Contains(down, `sas_phy_info{attached="upstream",card="9500-16i",expander="expander-1:0",phy="12"} 1`) {
 		t.Errorf("the card that stayed should still be up with its phys on the page:\n%s", down)
 	}
-	if strings.Contains(down, `sas_phy_info{attached="device",card="9500-16e"`) || strings.Contains(down, `sas_card_info{bios="00.00.00.00"`) {
+	if _, said := metricstest.One(t, down, "sas_card_info", map[string]string{"card": "9500-16e"}); said || strings.Contains(down, `sas_phy_info{attached="device",card="9500-16e"`) {
 		t.Errorf("the card that went still has its phys or what it said of itself on the page:\n%s", down)
 	}
 	if failed, _ := metricstest.One(t, down, "sas_poll_failures_total", map[string]string{"card": "9500-16e", "poll": "links"}); failed < 1 {

@@ -27,11 +27,14 @@ type hardware struct {
 	// failing is what every question of that kind fails with, when it is set
 	failEnclosures error
 	failCards      error
-	// noLimits makes every enclosure refuse the page of limits it holds its sensors to, as one that has no such page does
+	// noLimits makes every enclosure refuse the page of limits it holds its sensors to, and noLanes the page that says which connector each lane
+	// is wired to, as one that has no such page does
 	noLimits bool
+	noLanes  bool
 	asked    []string
-	// limits counts the times that page was asked for
+	// limits and lanes count the times each of those pages was asked for
 	limits int
+	lanes  int
 }
 
 func (h *hardware) devices() sysfs.Devices {
@@ -53,10 +56,16 @@ func (h *hardware) devices() sysfs.Devices {
 					return nil, errors.New("illegal request: the enclosure has no such page")
 				}
 			}
+			if page == ses.PageAdditional {
+				h.lanes++
+				if h.noLanes {
+					return nil, errors.New("illegal request: the enclosure has no such page")
+				}
+			}
 
 			configuration, status, names := shelf.Pages()
 
-			return map[byte][]byte{ses.PageConfiguration: configuration, ses.PageStatus: status, ses.PageNames: names, ses.PageLimits: shelf.Limits()}[page], nil
+			return map[byte][]byte{ses.PageConfiguration: configuration, ses.PageStatus: status, ses.PageNames: names, ses.PageLimits: shelf.Limits(), ses.PageAdditional: shelf.Additional()}[page], nil
 		},
 		CardPage: func(_ context.Context, driver string, id uint32) ([]byte, error) {
 			h.asked = append(h.asked, driver)
@@ -79,7 +88,9 @@ func temperatures(chip, board byte) []byte {
 }
 
 // machine is a card with a backplane behind it holding a disk in a slot, and what the backplane's enclosure says of everything else in it: two
-// fans of which one has failed, a temperature, a voltage, two power supplies of which one has lost its mains, and a connector with no name.
+// fans of which one has failed and was expected to, a temperature, a voltage, two power supplies of which one is being pointed out and one has
+// lost its mains, the expander itself, and two connectors with no name, the backplane's first two phys wired to the first and its third to the
+// second.
 func machine(t *testing.T) (*sysfstest.Tree, *sysfstest.Shelf, *hardware) {
 	t.Helper()
 
@@ -91,16 +102,21 @@ func machine(t *testing.T) (*sysfstest.Tree, *sysfstest.Shelf, *hardware) {
 	shelf := backplane.Enclosure(1)
 	shelf.Slot(0, "OK", backplane.Disk(0, "sda", "Z0000001"))
 
+	// a card that has slowed to half speed on reduced power
+	card := temperatures(53, 41)
+	card[0x04], card[0x13] = 0x05, 0x02
+
 	h := &hardware{
-		cards: map[uint32][]byte{0: temperatures(53, 41)},
+		cards: map[uint32][]byte{0: card},
 		shelves: map[string]*sestest.Shelf{shelf.Device: {Conditions: 0x02, Groups: []sestest.Group{
 			{Kind: ses.KindArrayDeviceSlot, Things: []sestest.Thing{{Name: "Slot00", Status: sestest.OK}}},
-			{Kind: ses.KindCooling, Things: []sestest.Thing{{Name: "Fan1", Status: sestest.Fan(5400)}, {Name: "Fan2", Status: [4]byte{0x02, 0, 0, 0x40}}}},
+			{Kind: ses.KindCooling, Things: []sestest.Thing{{Name: "Fan1", Status: sestest.Fan(5400)}, {Name: "Fan2", Status: [4]byte{0x42, 0, 0, 0x40}}}},
 			{Kind: ses.KindTemperatureSensor, Things: []sestest.Thing{{Name: "Backplane", Status: sestest.Temperature(34), Limits: sestest.Limits(50, 46, 10, 0)}}},
 			{Kind: ses.KindVoltageSensor, Things: []sestest.Thing{{Name: "12V", Status: sestest.Hundredths(1204)}}},
-			{Kind: ses.KindPowerSupply, Things: []sestest.Thing{{Name: "PS1", Status: sestest.OK}, {Name: "PS2", Status: [4]byte{0x02, 0, 0, 0x42}}}},
+			{Kind: ses.KindPowerSupply, Things: []sestest.Thing{{Name: "PS1", Status: [4]byte{0x01, 0x80, 0, 0}}, {Name: "PS2", Status: [4]byte{0x02, 0, 0, 0x42}}}},
+			{Kind: ses.KindSASExpander, Things: []sestest.Thing{{Name: "Expander", Status: sestest.OK}}},
 			{Kind: ses.KindSASConnector, Things: []sestest.Thing{{Status: sestest.OK}, {Status: sestest.OK}}},
-		}}},
+		}, Wiring: []sestest.Wiring{{Address: backplane.Address(), Connectors: []byte{0, 0, 1, 0xff}}}}},
 	}
 
 	return tree, shelf, h
@@ -134,6 +150,9 @@ func TestWhatTheHardwareSaysOfItself(t *testing.T) {
 	if len(got.Temperatures) != 2 || got.Temperatures[0] != (poll.Temperature{Sensor: "chip", Celsius: 53}) || got.Temperatures[1] != (poll.Temperature{Sensor: "board", Celsius: 41}) {
 		t.Errorf("the card's temperatures = %+v, want its chip at 53 and its board at 41", got.Temperatures)
 	}
+	if got.Speed != 0.5 || got.PowerMode != "reduced" {
+		t.Errorf("the card runs at %v of its speed on %q power, want half on reduced", got.Speed, got.PowerMode)
+	}
 
 	if len(got.Enclosures) != 1 || got.Enclosures[0].Name != shelf.Name {
 		t.Fatalf("enclosures = %+v, want the one, under the name the kernel gives it", got.Enclosures)
@@ -144,15 +163,21 @@ func TestWhatTheHardwareSaysOfItself(t *testing.T) {
 	}
 
 	// the slot is left to what the kernel already says of it
-	if len(e.Elements) != 8 {
-		t.Fatalf("the enclosure reports %d things, want the 8 that are not slots", len(e.Elements))
+	if len(e.Elements) != 9 {
+		t.Fatalf("the enclosure reports %d things, want the 9 that are not slots", len(e.Elements))
 	}
 
 	if fan := part(t, e, "cooling", "Fan1"); fan.Status != "ok" || fan.Fault || fan.RPM == nil || pointer.From(fan.RPM) != 5400 || fan.Celsius != nil {
 		t.Errorf("the first fan = %+v, want it ok at 5400 turns a minute", fan)
 	}
-	if fan := part(t, e, "cooling", "Fan2"); fan.Status != "critical" || !fan.Fault {
-		t.Errorf("the second fan = %+v, want it critical and failed", fan)
+	if fan := part(t, e, "cooling", "Fan2"); fan.Status != "critical" || !fan.Fault || !fan.PredictedFailure {
+		t.Errorf("the second fan = %+v, want it critical and failed, as the enclosure expected", fan)
+	}
+	if fan := part(t, e, "cooling", "Fan1"); fan.PredictedFailure || fan.Locate == nil || pointer.From(fan.Locate) {
+		t.Errorf("the first fan = %+v, want it expected to last and its locate light off", fan)
+	}
+	if supply := part(t, e, "power_supply", "PS1"); supply.Status != "ok" || supply.Locate == nil || !pointer.From(supply.Locate) {
+		t.Errorf("the first power supply = %+v, want it ok with its locate light on", supply)
 	}
 	if sensor := part(t, e, "temperature_sensor", "Backplane"); sensor.Celsius == nil || pointer.From(sensor.Celsius) != 34 || sensor.RPM != nil {
 		t.Errorf("the temperature sensor = %+v, want 34 degrees", sensor)
@@ -172,6 +197,30 @@ func TestWhatTheHardwareSaysOfItself(t *testing.T) {
 	// what the enclosure gives no name goes by its number among those of its kind
 	part(t, e, "sas_connector", "0")
 	part(t, e, "sas_connector", "1")
+
+	// each lane under the kernel's name for its expander, wired to a connector under the name the enclosure gives it; one wired to none is left out
+	want := []poll.Lane{{Expander: "expander-1:0", Phy: 0, Connector: "0"}, {Expander: "expander-1:0", Phy: 1, Connector: "0"}, {Expander: "expander-1:0", Phy: 2, Connector: "1"}}
+	if !slices.Equal(e.Lanes, want) {
+		t.Errorf("lanes = %+v, want %+v", e.Lanes, want)
+	}
+}
+
+// An enclosure that has no page saying which connector each lane is wired to is reported without, and is not asked for it again.
+func TestAnEnclosureThatDoesNotSayWhereItsLanesGo(t *testing.T) {
+	t.Parallel()
+
+	tree, _, h := machine(t)
+	h.noLanes = true
+	k := sysfs.New(tree.Root, h.devices())
+	for range 3 {
+		got, err := k.Sensors(t.Context(), card)
+		if err != nil || got.Unread != nil || got.Unavailable != "" || len(got.Enclosures) != 1 || len(got.Enclosures[0].Lanes) != 0 || len(got.Enclosures[0].Elements) != 9 {
+			t.Fatalf("with no page of lanes: %v, %v unread, %q unavailable, %d enclosures; want the one, without lanes and nothing amiss", err, got.Unread, got.Unavailable, len(got.Enclosures))
+		}
+	}
+	if h.lanes != 1 {
+		t.Errorf("the enclosure was asked for a page it does not have %d times in three rounds, want once", h.lanes)
+	}
 }
 
 // Two of a kind that an enclosure calls the same would be one on the page, so each after the first has its number added.
@@ -412,12 +461,17 @@ func TestTheRealMachinesEnclosures(t *testing.T) {
 				if want := map[bool]string{true: "unsupported", false: "ok"}[part.Kind == "enclosure"]; part.Status != want || part.Fault {
 					t.Errorf("%s: the %s %q is %s, failed %t; want %s and not failed", e.Name, part.Kind, part.Name, part.Status, part.Fault, want)
 				}
+				// nothing is expected to fail, and the JBOD's backplanes say the locate light of each power supply is on, which is what they send
+				if lit := part.Locate != nil && *part.Locate; part.PredictedFailure || lit != (part.Kind == "power_supply") {
+					t.Errorf("%s: the %s %q is expected to fail %t, with its locate light on %t; want only the power supplies' lights on", e.Name, part.Kind, part.Name, part.PredictedFailure, lit)
+				}
 
 				switch part.Kind {
 				case "cooling":
 					fans++
-					if part.RPM == nil || *part.RPM < 5000 || *part.RPM > 6000 {
-						t.Errorf("%s: the fan %s turns at %v, want between 5000 and 6000 turns a minute", e.Name, part.Name, part.RPM)
+					// a fan's speed follows how warm the chassis is: these have been seen from 4900 to 5800
+					if part.RPM == nil || *part.RPM < 4000 || *part.RPM > 7000 {
+						t.Errorf("%s: the fan %s turns at %v, want between 4000 and 7000 turns a minute", e.Name, part.Name, pointer.From(part.RPM))
 					}
 				case "power_supply":
 					supplies++
@@ -427,12 +481,12 @@ func TestTheRealMachinesEnclosures(t *testing.T) {
 				case "temperature_sensor":
 					temperatures++
 					if part.Celsius == nil || *part.Celsius < 30 || *part.Celsius > 80 {
-						t.Errorf("%s: the sensor %s reads %v, want between 30 and 80 degrees", e.Name, part.Name, part.Celsius)
+						t.Errorf("%s: the sensor %s reads %v, want between 30 and 80 degrees", e.Name, part.Name, pointer.From(part.Celsius))
 					}
 				case "voltage_sensor":
 					voltages++
 					if part.Volts == nil || *part.Volts < 1 || *part.Volts > 12.5 {
-						t.Errorf("%s: the sensor %s reads %v, want between 1 and 12.5 volts", e.Name, part.Name, part.Volts)
+						t.Errorf("%s: the sensor %s reads %v, want between 1 and 12.5 volts", e.Name, part.Name, pointer.From(part.Volts))
 					}
 				}
 			}
@@ -454,8 +508,43 @@ func TestTheRealMachinesEnclosures(t *testing.T) {
 		t.Fatalf("host8 again: %v and %d enclosures", err, len(second.Enclosures))
 	}
 	shelf := &second.Enclosures[0]
-	if fan, chip, fed := pointer.From(part(t, shelf, "cooling", "FAN04").RPM), pointer.From(part(t, shelf, "temperature_sensor", "ChipDie").Celsius), pointer.From(part(t, shelf, "voltage_sensor", "12VEXP").Volts); shelf.Name != "8:0:24:0" || fan != 5800 || chip != 70 || fed != 12.05 {
-		t.Errorf("%s: FAN04 at %v, ChipDie at %v and 12VEXP at %v; want 8:0:24:0 with 5800, 70 and 12.05", shelf.Name, fan, chip, fed)
+	if fan, chip, fed := pointer.From(part(t, shelf, "cooling", "FAN04").RPM), pointer.From(part(t, shelf, "temperature_sensor", "ChipDie").Celsius), pointer.From(part(t, shelf, "voltage_sensor", "12VEXP").Volts); shelf.Name != "8:0:24:0" || fan != 5100 || chip != 66 || fed != 12.06 {
+		t.Errorf("%s: FAN04 at %v, ChipDie at %v and 12VEXP at %v; want 8:0:24:0 with 5100, 66 and 12.06", shelf.Name, fan, chip, fed)
+	}
+
+	// the limits the first card's backplane holds its sensors to: its chip and board in degrees, its twelve volts as a share of twelve
+	first, err := k.Sensors(t.Context(), "host1")
+	if err != nil || len(first.Enclosures) != 2 || first.Enclosures[0].Name != "1:0:24:0" {
+		t.Fatalf("host1 again: %v and %+v", err, first.Enclosures)
+	}
+	shelf = &first.Enclosures[0]
+	for name, want := range map[string][4]float64{"ChipDie": {105, 100, 0, -4}, "BackPlaneLM75": {50, 46, 10, 0}, "12VEXP": {0.15, 0.1, -0.1, -0.15}} {
+		kind := map[bool]string{true: "voltage_sensor", false: "temperature_sensor"}[name == "12VEXP"]
+		held := part(t, shelf, kind, name).Limits
+		if held == nil || [4]float64{pointer.From(held.HighCritical), pointer.From(held.HighWarning), pointer.From(held.LowWarning), pointer.From(held.LowCritical)} != want {
+			t.Errorf("%s: %s is held to %+v, want %v", shelf.Name, name, held, want)
+		}
+	}
+
+	// which connector each lane is wired to: every slot's own, and four lanes to each cable connector, the card's cable on C and D of the first
+	// backplane and the cable on to the second on A and B
+	lanes, wired := 0, map[string]string{}
+	for _, hba := range []string{"host1", "host8"} {
+		got, _ := k.Sensors(t.Context(), hba)
+		for i := range got.Enclosures {
+			lanes += len(got.Enclosures[i].Lanes)
+			for _, lane := range got.Enclosures[i].Lanes {
+				wired[fmt.Sprintf("%s %d", lane.Expander, lane.Phy)] = lane.Connector
+			}
+		}
+	}
+	if lanes != sysfstest.NASLanes {
+		t.Errorf("%d lanes are wired to a connector, want %d", lanes, sysfstest.NASLanes)
+	}
+	for lane, want := range map[string]string{"expander-1:0 12": "ConnectorD", "expander-1:0 19": "ConnectorC", "expander-1:1 12": "ConnectorA", "expander-8:0 24": "ConnectorA", "expander-8:1 35": "ConnectorD"} {
+		if wired[lane] != want {
+			t.Errorf("%s is wired to %q, want %s", lane, wired[lane], want)
+		}
 	}
 }
 

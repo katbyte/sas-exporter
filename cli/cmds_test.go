@@ -167,20 +167,28 @@ func TestPrintReadsARealMachine(t *testing.T) {
 	}
 
 	for name, want := range map[string]int{
-		"sas_card_up":                     sysfstest.NASCards,
-		"sas_card_info":                   sysfstest.NASCards,
-		"sas_expander_info":               sysfstest.NASExpanders,
-		"sas_phy_info":                    sysfstest.NASPhys,
-		"sas_phy_link_state":              sysfstest.NASPhys,
-		"sas_phy_errors_total":            4 * (sysfstest.NASPhys - sysfstest.NASRefused),
-		"sas_device_info":                 sysfstest.NASDisks,
-		"sas_device_command_errors_total": sysfstest.NASDisks,
-		"sas_device_commands_total":       sysfstest.NASDisks,
-		"sas_card_pcie_link_width":        sysfstest.NASCards,
-		"sas_enclosure_info":              sysfstest.NASEnclosures,
-		"sas_enclosure_slot_status":       sysfstest.NASSlots,
-		"sas_card_temperature_celsius":    0,
-		"sas_enclosure_element_status":    0,
+		"sas_card_up":                                            sysfstest.NASCards,
+		"sas_card_info":                                          sysfstest.NASCards,
+		"sas_expander_info":                                      sysfstest.NASExpanders,
+		"sas_phy_info":                                           sysfstest.NASPhys,
+		"sas_phy_link_state":                                     sysfstest.NASPhys,
+		"sas_phy_errors_total":                                   4 * (sysfstest.NASPhys - sysfstest.NASRefused),
+		"sas_device_info":                                        sysfstest.NASDisks,
+		"sas_device_command_errors_total":                        sysfstest.NASDisks,
+		"sas_device_commands_total":                              sysfstest.NASDisks,
+		"sas_card_pcie_link_width":                               sysfstest.NASCards,
+		"sas_enclosure_info":                                     sysfstest.NASEnclosures,
+		"sas_enclosure_slot_status":                              sysfstest.NASSlots,
+		"sas_enclosure_slot_powered":                             sysfstest.NASSlots,
+		"sas_card_commands_in_flight":                            sysfstest.NASCards,
+		"sas_card_commands_in_flight_limit":                      sysfstest.NASCards,
+		"sas_device_queue_depth":                                 sysfstest.NASDisks,
+		"sas_device_timeout_seconds":                             sysfstest.NASDisks,
+		"sas_phy_minimum_link_rate_gigabits_per_second":          sysfstest.NASPhys - sysfstest.NASSpeedless,
+		"sas_phy_hardware_maximum_link_rate_gigabits_per_second": sysfstest.NASPhys - sysfstest.NASSpeedless,
+		"sas_phy_hardware_minimum_link_rate_gigabits_per_second": sysfstest.NASPhys - sysfstest.NASSpeedless,
+		"sas_card_temperature_celsius":                           0,
+		"sas_enclosure_element_status":                           0,
 		// the round that asks the hardware had nothing it could ask, so it is not said to have run
 		"sas_poll_failures_total": 2 * sysfstest.NASCards,
 	} {
@@ -190,8 +198,8 @@ func TestPrintReadsARealMachine(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`sas_card_info{bios="09.27.00.00",card="9500-16i",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",sas_address="500062b000000001",scsi_host="host1"} 1`,
-		`sas_expander_info{card="9500-16e",expander="expander-8:1",product="SC847-P",revision="100b",sas_address="5003048000000063",vendor="SMC"} 1`,
+		`sas_card_info{assembly="03-50134-00001",bios="09.27.00.00",card="9500-16i",chip="SAS3816",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",mpi="206.3d",nvdata="32.01.00.11",nvdata_default="32.01.00.11",sas_address="500062b000000001",scsi_host="host1",serial="C000000001"} 1`,
+		`sas_expander_info{card="9500-16e",chip="563",chip_revision="3",chip_vendor="LSI",expander="expander-8:1",product="SC847-P",revision="100b",sas_address="5003048000000063",vendor="SMC"} 1`,
 		`sas_phy_info{attached="upstream",card="9500-16i",expander="expander-1:0",phy="12"} 1`,
 		`sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="13"} 12`,
 		`sas_phy_errors_total{card="9500-16e",error="running_disparity",expander="expander-8:0",phy="21"} 3`,
@@ -223,7 +231,7 @@ func TestCardsGoByTheNamesChosenForThem(t *testing.T) {
 	for _, want := range []string{
 		`sas_card_up{card="inside"} 1`,
 		`sas_card_up{card="jbod"} 1`,
-		`sas_card_info{bios="09.27.00.00",card="inside",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",sas_address="500062b000000001",scsi_host="host1"} 1`,
+		`sas_card_info{assembly="03-50134-00001",bios="09.27.00.00",card="inside",chip="SAS3816",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",mpi="206.3d",nvdata="32.01.00.11",nvdata_default="32.01.00.11",sas_address="500062b000000001",scsi_host="host1",serial="C000000001"} 1`,
 		`sas_phy_info{attached="upstream",card="jbod",expander="expander-8:0",phy="20"} 1`,
 	} {
 		if !strings.Contains(out, want) {
@@ -280,9 +288,9 @@ func TestPrintReadsWhatARealMachinesEnclosuresSay(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`sas_enclosure_fan_speed_rpm{card="9500-16e",element="FAN04",enclosure="8:0:24:0"} 5800`,
-		`sas_enclosure_temperature_celsius{card="9500-16i",element="ChipDie",enclosure="1:0:35:0"} 76`,
-		`sas_enclosure_voltage_volts{card="9500-16e",element="VBAT",enclosure="8:0:25:0"} 2.95`,
+		`sas_enclosure_fan_speed_rpm{card="9500-16e",element="FAN04",enclosure="8:0:24:0"} 5100`,
+		`sas_enclosure_temperature_celsius{card="9500-16i",element="ChipDie",enclosure="1:0:35:0"} 71`,
+		`sas_enclosure_voltage_volts{card="9500-16e",element="VBAT",enclosure="8:0:25:0"} 2.89`,
 		`sas_enclosure_element_status{card="9500-16e",element="PS0000000000002",enclosure="8:0:24:0",status="ok",type="power_supply"} 1`,
 		`sas_enclosure_condition{card="9500-16e",condition="critical",enclosure="8:0:24:0"} 1`,
 		`sas_poll_failures_total{card="9500-16i",poll="sensors"} 0`,

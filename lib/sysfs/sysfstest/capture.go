@@ -28,12 +28,17 @@ const (
 	NASSlots      = 80
 	// NASRefused is the phys whose error counts the expanders would not give: eight on each card's first expander, with nothing wired to them.
 	NASRefused = 16
+	// NASSpeedless is the phys that do not say what speeds they can do: those sixteen, and five on each card past its sixteen lanes.
+	NASSpeedless = NASRefused + 2*5
 	// What its enclosures say they hold beside slots. The two behind the second card share a chassis and each reports its seven fans and two
 	// power supplies; the two behind the first report neither.
 	NASFans         = 14
 	NASSupplies     = 4
 	NASTemperatures = 10
 	NASVoltages     = 24
+	// NASLanes is the lanes the backplanes say a connector of theirs is wired to: four to each of the four cable connectors on each backplane, and
+	// one to each slot.
+	NASLanes = 4*4*NASEnclosures + NASSlots
 )
 
 // Capture is what a capture holds beside the files it lays out.

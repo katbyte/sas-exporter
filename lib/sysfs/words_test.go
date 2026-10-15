@@ -1,6 +1,7 @@
 package sysfs
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/katbyte/sas-exporter/lib/poll"
@@ -108,6 +109,38 @@ func TestTheSpeedOfACardsOwnLink(t *testing.T) {
 	for said, want := range map[string]float64{"16.0 GT/s PCIe": 16, "8.0 GT/s PCIe": 8, "5.0 GT/s PCIe": 5, "2.5 GT/s PCIe": 2.5, "5 GT/s": 5, "32.0 GT/s PCIe": 32, "Unknown": 0, "Unknown speed": 0, "": 0, "-1 GT/s": 0} {
 		if got := transfers(said); got != want {
 			t.Errorf("transfers(%q) = %v, want %v", said, got, want)
+		}
+	}
+}
+
+// The version of a card's settings is written as Broadcom's own tools write it, so it can be held against their release notes. What is not in the
+// kernel's usual form is given as it is.
+func TestTheVersionOfACardsSettings(t *testing.T) {
+	t.Parallel()
+
+	for said, want := range map[string]string{"2001000bh": "32.01.00.11", "2001000eh": "32.01.00.14", "0e000300h": "14.00.03.00", "2001000b": "2001000b", "zz01000bh": "zz01000bh", "": ""} {
+		if got := nvdata(said); got != want {
+			t.Errorf("%q is %q, want %q", said, got, want)
+		}
+	}
+}
+
+// What the maker put in a device's description is text, with the padding and anything that is not text left out.
+func TestTheMakersOwnPartOfADescription(t *testing.T) {
+	t.Parallel()
+
+	head := make([]byte, 36)
+	for name, c := range map[string]struct {
+		inquiry []byte
+		want    string
+	}{
+		"a firmware version":      {slices.Concat(head, []byte("x40-66.16.11.0      ")), "x40-66.16.11.0"},
+		"with bytes that are not": {slices.Concat(head, []byte("x28\x00\x01-66.16.13.0\xff    ")), "x28-66.16.13.0"},
+		"too short to have any":   {head, ""},
+		"nothing but padding":     {make([]byte, 96), ""},
+	} {
+		if got := vendorSpecific(c.inquiry); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
 		}
 	}
 }

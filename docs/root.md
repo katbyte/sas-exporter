@@ -6,8 +6,8 @@ Two things are not kept there. They are asked of the hardware itself, through de
 
 | What | Asked through |
 |---|---|
-| an enclosure's fans, power supplies, temperatures and voltages | the enclosure's own `/dev/sgN` |
-| a card's own temperature | `/dev/mpt3ctl`, the `mpt3sas` driver's way in to its cards |
+| an enclosure's fans, power supplies, temperatures and voltages, and which connector each lane is wired to | the enclosure's own `/dev/sgN` |
+| a card's own temperature, speed and power mode | `/dev/mpt3ctl`, the `mpt3sas` driver's way in to its cards |
 
 ## Without root
 
@@ -24,7 +24,7 @@ Two things are not kept there. They are asked of the hardware itself, through de
 - An enclosure's device is opened for reading. The kernel then lets nothing through it but commands that read.
 - The question put to a card is the one its maker's own tools ask.
 - Only cards on the `mpt3sas` driver are asked.
-- An enclosure that will not give its limits is not asked for them again.
+- An enclosure that will not give its limits, or which connector each lane is wired to, is not asked for that again.
 
 ## One caution about a card's temperature
 

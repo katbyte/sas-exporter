@@ -1,6 +1,7 @@
 package sysfs
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -103,4 +104,40 @@ func transfers(said string) float64 {
 	}
 
 	return speed
+}
+
+// nvdata is the version of a card's settings as Broadcom's own tools write it, 32.01.00.11, from the kernel's 2001000bh: the same four bytes, each
+// in tens rather than in sixteens. Anything else the kernel writes is given as it is.
+func nvdata(said string) string {
+	raw, found := strings.CutSuffix(said, "h")
+	n, err := strconv.ParseUint(raw, 16, 32)
+	if !found || len(raw) != 8 || err != nil {
+		return said
+	}
+
+	return fmt.Sprintf("%02d.%02d.%02d.%02d", n>>24, n>>16&0xff, n>>8&0xff, n&0xff)
+}
+
+// vendorSpecificStart and vendorSpecificEnd are where the part of a device's description left to its maker is: twenty bytes after its maker,
+// product and revision.
+const (
+	vendorSpecificStart = 36
+	vendorSpecificEnd   = 56
+)
+
+// vendorSpecific is the part of a device's description left to its maker, as text, with anything that is not text left out.
+func vendorSpecific(inquiry []byte) string {
+	if len(inquiry) < vendorSpecificEnd {
+		return ""
+	}
+
+	text := strings.Map(func(r rune) rune {
+		if r < ' ' || r > '~' {
+			return -1
+		}
+
+		return r
+	}, string(inquiry[vendorSpecificStart:vendorSpecificEnd]))
+
+	return strings.TrimSpace(text)
 }

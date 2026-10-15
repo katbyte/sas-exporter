@@ -47,10 +47,10 @@ Nothing is mounted and no privilege is given. The image does not run as root.
 
 | Readings | What they say |
 |---|---|
-| [`sas_card_*`](docs/readings.md#cards) | each card: in service or not, model and firmware, restarts, temperature, and its slot |
-| [`sas_expander_*`, `sas_phy_*`](docs/readings.md#lanes) | each lane: what it leads to, link speed, and errors counted |
-| [`sas_device_*`](docs/readings.md#disks) | each disk: serial, slot, state, and commands that failed or timed out |
-| [`sas_enclosure_*`](docs/readings.md#enclosures) | each enclosure: slots, fans, power supplies, temperatures and voltages |
+| [`sas_card_*`](docs/readings.md#cards) | each card: in service or not, model, serial and firmware, restarts, temperature, how busy it is, and its slot |
+| [`sas_expander_*`, `sas_phy_*`](docs/readings.md#lanes) | each lane: what it leads to, link speed and the speeds it is set to, and errors counted |
+| [`sas_device_*`](docs/readings.md#disks) | each disk: serial, slot, state, how many commands it takes at once, and commands that failed or timed out |
+| [`sas_enclosure_*`](docs/readings.md#enclosures) | each enclosure: slots and whether each has power, fans, power supplies, temperatures and voltages |
 | [`sas_poll_*`](docs/readings.md#polling) | how the program's own polling is going |
 
 Every reading has a `card` label. A card goes by its model, `9500-16i`, or by [a name you choose](docs/readings.md#what-a-card-goes-by).

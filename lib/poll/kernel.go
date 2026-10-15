@@ -33,12 +33,25 @@ type HBA struct {
 	BIOS          string
 	Driver        string
 	DriverVersion string
+	// Serial is the card's own serial number, Assembly the maker's part number for the board, and Chip what it is built on: SAS3816.
+	Serial   string
+	Assembly string
+	Chip     string
+	// NVData is the version of the settings the card keeps in its own memory, and NVDataDefault of the ones it came with: the two differ on a card
+	// whose settings were changed. MPI is the version of the language the card and its driver speak.
+	NVData        string
+	NVDataDefault string
+	MPI           string
 	// Running says the kernel has the card in service, and is not resetting it or taking it away.
 	Running bool
 	// Resets is how many times the card's firmware has been restarted since its driver loaded, and nil for a driver that keeps no count.
 	Resets *uint64
 	// Slot is the link between the card and the machine it is plugged into, and nil for a card the kernel says nothing of the kind about.
 	Slot *PCIeLink
+	// InFlight is how many commands the kernel had sent the card that had not come back when it was asked, and Queue the most it will have out with
+	// the card at once. Each is nil for a driver that does not say.
+	InFlight *uint64
+	Queue    *uint64
 }
 
 // PCIeLink is a card's own link to the machine: how fast each of its lanes runs and how many there are, beside the most the card and its slot can
@@ -71,6 +84,10 @@ type Expander struct {
 	Vendor     string
 	Product    string
 	Revision   string
+	// ChipVendor, Chip and ChipRevision are the chip the expander is built on, as its maker numbers it: LSI, 562, 3.
+	ChipVendor   string
+	Chip         string
+	ChipRevision string
 }
 
 // LinkState is what a phy says of its link.
@@ -109,11 +126,15 @@ type Phy struct {
 	Expander string
 	Number   int
 	Link     LinkState
-	// Rate is the speed the link came up at, in gigabits a second as SAS speeds are always given, and 0 with no link. Maximum is the most the phy
-	// is set to offer, and 0 for a phy that does not say.
-	Rate     float64
-	Maximum  float64
-	Attached Attached
+	// Rate is the speed the link came up at, in gigabits a second as SAS speeds are always given, and 0 with no link. Maximum and Minimum are the
+	// most and the least the phy is set to offer, and HardwareMaximum and HardwareMinimum the most and the least it can; each is 0 for a phy that
+	// does not say.
+	Rate            float64
+	Maximum         float64
+	Minimum         float64
+	HardwareMaximum float64
+	HardwareMinimum float64
+	Attached        Attached
 	// Errors is the phy's error counts, and nil for a phy that keeps none or would not give them this time.
 	Errors *PhyErrors
 }
@@ -158,6 +179,10 @@ type Device struct {
 	Completed *uint64
 	Errors    *uint64
 	Timeouts  *uint64
+	// QueueDepth is the most commands the kernel will have out with the device at once, and Timeout how many seconds it waits for one to come back
+	// before giving up on it. Each is nil where the kernel does not say.
+	QueueDepth *uint64
+	Timeout    *uint64
 }
 
 // Enclosure is one shelf of slots, as its own processor describes it.
@@ -171,7 +196,10 @@ type Enclosure struct {
 	Revision string
 	// Expander is the expander the enclosure speaks through, and empty for one on the card itself.
 	Expander string
-	Slots    []Slot
+	// VendorSpecific is what the maker put in the part of the enclosure's description left to it: a Supermicro backplane's firmware version,
+	// x40-66.16.11.0.
+	VendorSpecific string
+	Slots          []Slot
 }
 
 // Slot is one bay of an enclosure.
@@ -183,13 +211,19 @@ type Slot struct {
 	// Fault says the slot's fault light is asked for or the enclosure senses a fault there, and Locate that its locate light is on.
 	Fault  bool
 	Locate bool
+	// Powered says the enclosure has power to the slot, and is nil for an enclosure that cannot say.
+	Powered *bool
 }
 
 // Sensors is what a card and its enclosures measure of themselves.
 type Sensors struct {
 	// Temperatures is the card's own, one for each place on it one is taken. Empty for a card that has none, or that was not asked.
 	Temperatures []Temperature
-	Enclosures   []EnclosureSensors
+	// Speed is how fast the card's processor runs as a share of its full speed, and 0 for a card that does not say. PowerMode is the power it runs
+	// on, full, reduced or standby, and empty for a card that does not say.
+	Speed      float64
+	PowerMode  string
+	Enclosures []EnclosureSensors
 	// Unread is what would not answer this time, and nil when everything asked did. The rest is as it was read.
 	Unread error
 	// Unavailable says what could not be asked at all here and why, as a line for the log: no leave to open a device, say. Empty when everything
@@ -222,6 +256,17 @@ type EnclosureSensors struct {
 	// Conditions is what the enclosure says of itself as a whole, by how bad: each is set while something in it is in that condition.
 	Conditions Conditions
 	Elements   []Element
+	// Lanes is which of its connectors each phy of its expanders is wired to, and empty for an enclosure that does not say.
+	Lanes []Lane
+}
+
+// Lane is one phy of an expander, and the connector of the enclosure it is wired to.
+type Lane struct {
+	// Expander is the kernel's name for the expander, expander-1:0, as Phy has it.
+	Expander string
+	Phy      int
+	// Connector is what the enclosure calls the connector, as Element has it: ConnectorA, or a slot's Drive Connector 05.
+	Connector string
 }
 
 // Conditions is how an enclosure sums itself up.
@@ -241,22 +286,26 @@ type Element struct {
 	Name string
 	// Status is what the enclosure says of it, in the page's words: ok, critical, not_installed.
 	Status string
-	// Fault says the enclosure reports it as failed.
-	Fault bool
+	// Fault says the enclosure reports it as failed, and PredictedFailure that it expects it to.
+	Fault            bool
+	PredictedFailure bool
+	// Locate says whether its locate light is on, and is nil for a kind of thing that has none.
+	Locate *bool
 	// What it measures, each nil for an element that is not of that kind or gives no reading: a fan's speed in turns a minute, a sensor's
 	// temperature, voltage or current.
 	RPM     *float64
 	Celsius *float64
 	Volts   *float64
 	Amperes *float64
-	// Limits is the limits the enclosure holds a temperature sensor to, and nil for one it sets none for and for anything else.
+	// Limits is the limits the enclosure holds a sensor to, and nil for one it sets none for and for anything that is not a sensor.
 	Limits *Limits
 	// Problems is the particular ways a power supply can be in trouble, each said to be so or not. Empty for anything else.
 	Problems []Problem
 }
 
-// Limits is the temperatures an enclosure holds one of its sensors to, in degrees: past a warning it calls the sensor not quite right, and past a
-// critical one, critical. One it does not set is nil.
+// Limits is the limits an enclosure holds one of its sensors to: past a warning it calls the sensor not quite right, and past a critical one,
+// critical. A temperature sensor's are in degrees; a voltage or a current sensor's are a share of what it should read, which the enclosure does not
+// say, with the low ones below 0. One it does not set is nil.
 type Limits struct {
 	HighCritical *float64
 	HighWarning  *float64

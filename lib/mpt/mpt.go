@@ -135,3 +135,42 @@ func Temperatures(page []byte) []Temperature {
 
 	return out
 }
+
+// Where a card says which power mode it is in and how fast its processor runs, and the modes it can be in.
+const (
+	powerModeOffset = 0x04
+	powerModeMask   = 0x07
+	speedOffset     = 0x13
+)
+
+// The power modes a card can be in, as the page's words.
+const (
+	PowerFull    = "full"
+	PowerReduced = "reduced"
+	PowerStandby = "standby"
+)
+
+// PowerModes is every power mode a card can say it is in.
+var PowerModes = []string{PowerFull, PowerReduced, PowerStandby}
+
+// Speed is how fast a card's processor runs as a share of its full speed, from its IOUnit7 page: 1, or a half, a quarter or an eighth for a card
+// that has slowed itself. False for a page that does not say.
+func Speed(page []byte) (float64, bool) {
+	if len(page) <= speedOffset {
+		return 0, false
+	}
+
+	share, known := map[byte]float64{0x01: 1, 0x02: 0.5, 0x04: 0.25, 0x08: 0.125}[page[speedOffset]]
+
+	return share, known
+}
+
+// PowerMode is the power a card runs on, from its IOUnit7 page: full, reduced or standby. Empty for a page that does not say, as a card that does
+// not manage its power does not.
+func PowerMode(page []byte) string {
+	if len(page) <= powerModeOffset {
+		return ""
+	}
+
+	return map[byte]string{0x04: PowerFull, 0x05: PowerReduced, 0x06: PowerStandby}[page[powerModeOffset]&powerModeMask]
+}

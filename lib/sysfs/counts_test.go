@@ -1,6 +1,7 @@
 package sysfs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -149,13 +150,21 @@ func TestTheRealMachine(t *testing.T) {
 	if hbas[0].Name != "host1" || hbas[0].Model != "HBA 9500-16i" || hbas[1].Name != "host8" || hbas[1].Model != "HBA 9500-16e" || !hbas[0].Running || hbas[0].DriverVersion != "48.100.00.00" {
 		t.Errorf("cards = %+v, want an HBA 9500-16i as host1 and an HBA 9500-16e as host8, both in service", hbas)
 	}
-	for _, hba := range hbas {
+	for i, hba := range hbas {
 		if hba.Slot == nil || *hba.Slot != (poll.PCIeLink{Speed: 16, MaximumSpeed: 16, Width: 8, MaximumWidth: 8}) {
 			t.Errorf("%s: its own link to the machine is %+v, want eight lanes at 16 gigatransfers a second, the most it can do", hba.Name, hba.Slot)
 		}
+
+		// the serial numbers are made up, in the order the cards were captured
+		if hba.Serial != fmt.Sprintf("C%09d", i+1) || hba.Chip != "SAS3816" || hba.Assembly == "" || !strings.HasPrefix(hba.NVData, "32.01.00.") || hba.NVDataDefault != hba.NVData || hba.MPI != "206.3d" {
+			t.Errorf("%s: says of itself %+v, want a made-up serial number, a SAS3816 chip, and the settings it came with", hba.Name, hba)
+		}
+		if hba.InFlight == nil || hba.Queue == nil || *hba.Queue != 4336 {
+			t.Errorf("%s: %v commands in flight of at most %v, want a count of at most 4336", hba.Name, hba.InFlight, hba.Queue)
+		}
 	}
 
-	var expanders, phys, disks, enclosures, slots, without int
+	var expanders, phys, disks, enclosures, slots, without, speedless int
 	attached, serials, seated := map[poll.Attached]int{}, map[string]bool{}, 0
 	for _, hba := range hbas {
 		links, err := k.Links(t.Context(), hba.Name)
@@ -171,6 +180,13 @@ func TestTheRealMachine(t *testing.T) {
 			// every link on this machine that came up did so at 12 gigabits a second
 			if (p.Link == poll.LinkUp) != (p.Rate == 12) {
 				t.Errorf("%s phy %d of %q is %s at %v gigabits a second", hba.Name, p.Number, p.Expander, p.Link, p.Rate)
+			}
+
+			// a phy that says what speeds it can do says all four, and can do 12 and is set to
+			if p.Maximum == 0 && p.Minimum == 0 && p.HardwareMaximum == 0 && p.HardwareMinimum == 0 {
+				speedless++
+			} else if p.Maximum != 12 || p.HardwareMaximum != 12 || p.Minimum == 0 || p.HardwareMinimum == 0 {
+				t.Errorf("%s phy %d of %q is set to between %v and %v gigabits a second and can do between %v and %v", hba.Name, p.Number, p.Expander, p.Minimum, p.Maximum, p.HardwareMinimum, p.HardwareMaximum)
 			}
 
 			if p.Errors == nil {
@@ -192,6 +208,15 @@ func TestTheRealMachine(t *testing.T) {
 			if d.Serial == "" || d.Disk == "" || d.WWN == "" || d.State != "running" || d.Expander == "" || d.Phy < 0 || d.Errors == nil || d.Timeouts == nil || d.Sent == nil || d.Completed == nil || *d.Sent == 0 {
 				t.Errorf("%s: a disk with something missing: %+v", hba.Name, *d)
 			}
+			if d.QueueDepth == nil || *d.QueueDepth != 64 || d.Timeout == nil || *d.Timeout != 30 {
+				t.Errorf("%s: disk %s takes %v commands at once and is given %v seconds for each, want 64 and 30", hba.Name, d.Disk, d.QueueDepth, d.Timeout)
+			}
+		}
+
+		for _, e := range links.Expanders {
+			if e.ChipVendor != "LSI" || !slices.Contains([]string{"562", "563", "565"}, e.Chip) || e.ChipRevision != "3" {
+				t.Errorf("%s: expander %s is built on %q %q revision %q, want one of LSI's", hba.Name, e.Name, e.ChipVendor, e.Chip, e.ChipRevision)
+			}
 		}
 
 		shelves, err := k.Enclosures(t.Context(), hba.Name)
@@ -201,8 +226,17 @@ func TestTheRealMachine(t *testing.T) {
 		enclosures += len(shelves)
 		for _, shelf := range shelves {
 			slots += len(shelf.Slots)
+			// a Supermicro backplane puts its firmware version where its maker may say what it likes
+			if !strings.HasPrefix(shelf.VendorSpecific, "x") || !strings.Contains(shelf.VendorSpecific, "-66.16.1") {
+				t.Errorf("%s: enclosure %s says %q of itself, want its firmware version", hba.Name, shelf.Name, shelf.VendorSpecific)
+			}
 			if shelf.Vendor != "SMC" || shelf.ID == "" || shelf.Expander == "" {
 				t.Errorf("%s: an enclosure with something missing: %+v", hba.Name, shelf)
+			}
+			for _, slot := range shelf.Slots {
+				if slot.Powered == nil || !*slot.Powered {
+					t.Errorf("%s: slot %s of %s has power %v, want every slot on", hba.Name, slot.Number, shelf.Name, slot.Powered)
+				}
 			}
 		}
 	}
@@ -212,6 +246,9 @@ func TestTheRealMachine(t *testing.T) {
 	}
 	if without != sysfstest.NASRefused {
 		t.Errorf("%d phys have no error counts, want the %d the expanders refused", without, sysfstest.NASRefused)
+	}
+	if speedless != sysfstest.NASSpeedless {
+		t.Errorf("%d phys say nothing of the speeds they can do, want %d", speedless, sysfstest.NASSpeedless)
 	}
 	if len(serials) != sysfstest.NASDisks || seated != sysfstest.NASDisks {
 		t.Errorf("%d serial numbers between %d disks, %d of them in a slot; want every disk with its own and in one", len(serials), disks, seated)
