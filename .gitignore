@@ -1,0 +1,11 @@
+.claude/
+.DS_Store
+.idea/
+dist/
+sas-exporter
+.tools/bin/
+.tools/venv/
+.tools/npm/
+__pycache__/
+.sas-exporter
+.coverage/

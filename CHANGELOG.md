@@ -1,0 +1,20 @@
+# Changelog
+
+## 0.1.0 (2026-10-15)
+
+The first release: a metrics page for the SAS cards in a Linux machine and everything that hangs off them.
+
+- **How each card is doing, as a page Prometheus can read**: whether the kernel has it in service, its model, firmware and driver, how often its firmware has been restarted, and whether its own link to the machine came up as fast and as wide as the card was made for.
+- **Every lane**: the speed each link came up at in gigabits a second, whether it came up at all, and the four counts of what has gone wrong on it, so a bad cable or connector shows as a count that keeps growing.
+- **Cables told apart from slots**: each lane says whether it leads to a disk, on to a further backplane, or back towards the card.
+- **Every disk, by serial number**: what it is, which slot it sits in and which lane its link is on, whether the kernel is still sending to it, and how many commands it was sent, answered, failed or never answered.
+- **Every slot of every enclosure**: empty, fine or failed, and whether its fault or locate light is on.
+- **Nothing to set up for any of that**: it reads the kernel's `/sys`, so it needs no root, no privileged container and no maker's tool, and runs with no settings at all.
+- **Fans, power supplies, temperatures and voltages, when run as root**: everything else an enclosure says of itself, each under the name the enclosure gives it, with what is wrong with a power supply spelt out. Each temperature comes with the limits the enclosure holds it to. These are asked of the enclosure itself, which the kernel only lets root do.
+- **Each card's own temperature, when run as root**, asked of the card through its driver. A card that fails to answer is never asked twice, since its driver resets a card that does not answer.
+- **Without root nothing breaks**: the page simply lacks those readings and the log says why, once. `--sensors` chooses which of the two are asked at all.
+- **One card going away does not stop another being reported**, and a card that stops answering is asked no more that round rather than pushed into a reset.
+- **`serve` keeps the page up** for a scraper to read, and `print` shows it once as a check that the cards can be seen.
+- **Each card goes by its model**, `9500-16i`, on every one of its readings, and by a name of your choosing when you give it one.
+- **Labels of your own on every reading**, to tell one machine from another.
+- Ships as a Docker image, a Homebrew formula and ready-built programs, for Linux.

@@ -1,0 +1,49 @@
+# Default always-on deployment: runs the released image from ghcr.io on the machine the SAS cards are
+# in, and serves the metrics page for a Prometheus, or a Grafana Alloy, to scrape.
+# To run a local build instead: make docker, then set image: sas-exporter (or add build: .).
+# Nothing is mounted and no privilege is given: the cards are read from the container's own /sys,
+# which docker gives every container read-only and which shows the machine's SAS cards.
+# The fans, power supplies and temperatures are the exception: they are asked of the hardware
+# itself, which takes root and the machine's devices. The lines for that are commented out below.
+# The image's own healthcheck asks /healthz on the default port; add a healthcheck here if
+# SAS_EXPORTER_LISTEN names another.
+
+networks:
+  net:
+    name: net
+
+services:
+  sas-exporter:
+    image: ghcr.io/katbyte/sas-exporter:latest
+    container_name: sas-exporter
+    hostname: sas-exporter
+    restart: always
+    # for the fans, power supplies and temperatures: root, the machine's /dev, and leave to read the
+    # two kinds of device that are asked (or privileged: true in place of the rules, for all of them).
+    # ls -l /dev/sg0 /dev/mpt3ctl shows the numbers a rule is written with
+    # user: root
+    # device_cgroup_rules:
+    #   - "c 21:* r"   # /dev/sg*, which enclosures are asked through
+    #   - "c 10:222 r" # /dev/mpt3ctl, which cards are asked through
+    # volumes:
+    #   - /dev:/host/dev:ro
+    networks:
+      net:
+    # only the host itself can reach the page: whatever scrapes it runs there. Drop the address
+    # to let the rest of the network in, since the page needs no password
+    ports:
+      - "127.0.0.1:9088:9088"
+    environment:
+      - "TZ=America/Vancouver"
+      - "SAS_EXPORTER_LISTEN=:9088"
+      - "SAS_EXPORTER_LOG=INFO"
+      # - "SAS_EXPORTER_LABELS=hostname=nas"        # labels for every reading, when whatever scrapes the page does not add its own
+      # - "SAS_EXPORTER_INTERVALS=links=1m,enclosures=5m,sensors=1m"   # how often the cards, phys and disks, the slots, and the fans and temperatures are read
+      # - "SAS_EXPORTER_SYSFS=/host/sys"            # where the kernel's /sys is, when the host's is mounted somewhere else
+      # - "SAS_EXPORTER_DEV=/host/dev"              # where the machine's devices are: set this with the lines for root above
+      # - "SAS_EXPORTER_CARD_NAMES=9500-16e=jbod"   # a name of your choosing for a card, in place of its model
+      # - "SAS_EXPORTER_SENSORS=all"                # what is asked of the hardware itself: all, none, or enclosures and cards
+    logging:
+      options:
+        max-size: 100m
+        max-file: "1"

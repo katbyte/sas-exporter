@@ -1,0 +1,242 @@
+# HELP sas_card_info Always 1, with the card's model, the versions of its firmware, its BIOS and its driver, its SAS address, and the kernel's name for it today, which is the number its expanders and enclosures are named with.
+# TYPE sas_card_info gauge
+sas_card_info{bios="09.27.00.00",card="9500-16i",driver="mpt3sas",driver_version="48.100.00.00",firmware="32.00.00.00",model="HBA 9500-16i",sas_address="500062b000000001",scsi_host="host1"} 1
+# HELP sas_card_pcie_link_speed_gigatransfers_per_second The speed of each lane of the card's own link to the machine, in gigatransfers a second: 16 is PCIe 4.0, 8 is 3.0.
+# TYPE sas_card_pcie_link_speed_gigatransfers_per_second gauge
+sas_card_pcie_link_speed_gigatransfers_per_second{card="9500-16i"} 8
+# HELP sas_card_pcie_link_width How many lanes the card's own link to the machine came up with.
+# TYPE sas_card_pcie_link_width gauge
+sas_card_pcie_link_width{card="9500-16i"} 4
+# HELP sas_card_pcie_maximum_link_speed_gigatransfers_per_second The fastest each lane of the card's own link to the machine could be: a link slower than this is a card in a slower slot than it was made for.
+# TYPE sas_card_pcie_maximum_link_speed_gigatransfers_per_second gauge
+sas_card_pcie_maximum_link_speed_gigatransfers_per_second{card="9500-16i"} 16
+# HELP sas_card_pcie_maximum_link_width How many lanes the card's own link to the machine could have: a link narrower than this is a card in a narrower slot, or not seated.
+# TYPE sas_card_pcie_maximum_link_width gauge
+sas_card_pcie_maximum_link_width{card="9500-16i"} 8
+# HELP sas_card_resets_total How many times the card's firmware has been restarted since its driver loaded.
+# TYPE sas_card_resets_total counter
+sas_card_resets_total{card="9500-16i"} 2
+# HELP sas_card_temperature_celsius The card's own temperature, by where on the card it is taken: chip for its processor, board for the card around it.
+# TYPE sas_card_temperature_celsius gauge
+sas_card_temperature_celsius{card="9500-16i",sensor="board"} 41
+sas_card_temperature_celsius{card="9500-16i",sensor="chip"} 53
+# HELP sas_card_up Whether the kernel had the card and had it in service the last time it was asked (1) or not (0).
+# TYPE sas_card_up gauge
+sas_card_up{card="9500-16e"} 0
+sas_card_up{card="9500-16i"} 1
+# HELP sas_device_command_errors_total Commands the device answered with anything but success since it appeared. A question it merely declines counts as well as a fault, so watch for one disk growing faster than its neighbours.
+# TYPE sas_device_command_errors_total counter
+sas_device_command_errors_total{card="9500-16i",disk="sdb",serial="Z0000030"} 5
+sas_device_command_errors_total{card="9500-16i",disk="sdc",serial="Z0000031"} 240
+# HELP sas_device_command_timeouts_total Commands the device never answered since it appeared.
+# TYPE sas_device_command_timeouts_total counter
+sas_device_command_timeouts_total{card="9500-16i",disk="sdb",serial="Z0000030"} 0
+sas_device_command_timeouts_total{card="9500-16i",disk="sdc",serial="Z0000031"} 7
+# HELP sas_device_commands_completed_total Commands the device has answered since it appeared, well or badly: fewer than were sent, for long, is a command stuck with the device.
+# TYPE sas_device_commands_completed_total counter
+sas_device_commands_completed_total{card="9500-16i",disk="sdb",serial="Z0000030"} 2.0141103e+07
+sas_device_commands_completed_total{card="9500-16i",disk="sdc",serial="Z0000031"} 8990
+# HELP sas_device_commands_total Commands the kernel has sent the device since it appeared.
+# TYPE sas_device_commands_total counter
+sas_device_commands_total{card="9500-16i",disk="sdb",serial="Z0000030"} 2.0141104e+07
+sas_device_commands_total{card="9500-16i",disk="sdc",serial="Z0000031"} 9000
+# HELP sas_device_info Always 1, with what the device is and where: its world wide name, maker, model and firmware, its SAS address, the phy its link is on, and the enclosure and slot it sits in.
+# TYPE sas_device_info gauge
+sas_device_info{card="9500-16i",disk="sdb",enclosure="1:0:24:0",expander="expander-1:0",model="WUH722020BL5204",phy="0",revision="C54K",sas_address="5000cca000000040",serial="Z0000030",slot="0",vendor="WDC",wwn="5000cca000000041"} 1
+sas_device_info{card="9500-16i",disk="sdc",enclosure="1:0:24:0",expander="expander-1:0",model="ST4000NM0035",phy="1",revision="SN04",sas_address="5000c50000000050",serial="Z0000031",slot="1",vendor="ATA",wwn=""} 1
+# HELP sas_device_state Always 1, with what the kernel says the device is doing: running, or blocked, offline, transport_offline and the like for one it has stopped sending to.
+# TYPE sas_device_state gauge
+sas_device_state{card="9500-16i",disk="sdb",serial="Z0000030",state="running"} 1
+sas_device_state{card="9500-16i",disk="sdc",serial="Z0000031",state="offline"} 1
+# HELP sas_enclosure_condition Whether the enclosure says something in it is in that condition (1) or not (0): info, non_critical, critical or unrecoverable.
+# TYPE sas_enclosure_condition gauge
+sas_enclosure_condition{card="9500-16i",condition="critical",enclosure="1:0:24:0"} 1
+sas_enclosure_condition{card="9500-16i",condition="info",enclosure="1:0:24:0"} 0
+sas_enclosure_condition{card="9500-16i",condition="non_critical",enclosure="1:0:24:0"} 0
+sas_enclosure_condition{card="9500-16i",condition="unrecoverable",enclosure="1:0:24:0"} 0
+# HELP sas_enclosure_current_amperes What one of the enclosure's current sensors reads.
+# TYPE sas_enclosure_current_amperes gauge
+sas_enclosure_current_amperes{card="9500-16i",element="12V",enclosure="1:0:24:0"} 18.5
+# HELP sas_enclosure_element_fault Whether the enclosure reports the thing as failed (1) or not (0).
+# TYPE sas_enclosure_element_fault gauge
+sas_enclosure_element_fault{card="9500-16i",element="0",enclosure="1:0:24:0",type="sas_connector"} 0
+sas_enclosure_element_fault{card="9500-16i",element="12V",enclosure="1:0:24:0",type="current_sensor"} 0
+sas_enclosure_element_fault{card="9500-16i",element="12V",enclosure="1:0:24:0",type="voltage_sensor"} 0
+sas_enclosure_element_fault{card="9500-16i",element="5V",enclosure="1:0:24:0",type="voltage_sensor"} 0
+sas_enclosure_element_fault{card="9500-16i",element="Backplane",enclosure="1:0:24:0",type="temperature_sensor"} 0
+sas_enclosure_element_fault{card="9500-16i",element="Fan1",enclosure="1:0:24:0",type="cooling"} 0
+sas_enclosure_element_fault{card="9500-16i",element="Fan2",enclosure="1:0:24:0",type="cooling"} 1
+sas_enclosure_element_fault{card="9500-16i",element="PS1",enclosure="1:0:24:0",type="power_supply"} 0
+sas_enclosure_element_fault{card="9500-16i",element="PS2",enclosure="1:0:24:0",type="power_supply"} 1
+sas_enclosure_element_fault{card="9500-16i",element="PS3",enclosure="1:0:24:0",type="power_supply"} 0
+# HELP sas_enclosure_element_status Always 1, with what the enclosure says of one of the things in it that is not a slot: a fan, a power supply, a sensor, a connector. ok, not_installed, critical and the rest are as for a slot.
+# TYPE sas_enclosure_element_status gauge
+sas_enclosure_element_status{card="9500-16i",element="0",enclosure="1:0:24:0",status="ok",type="sas_connector"} 1
+sas_enclosure_element_status{card="9500-16i",element="12V",enclosure="1:0:24:0",status="non_critical",type="voltage_sensor"} 1
+sas_enclosure_element_status{card="9500-16i",element="12V",enclosure="1:0:24:0",status="ok",type="current_sensor"} 1
+sas_enclosure_element_status{card="9500-16i",element="5V",enclosure="1:0:24:0",status="ok",type="voltage_sensor"} 1
+sas_enclosure_element_status{card="9500-16i",element="Backplane",enclosure="1:0:24:0",status="ok",type="temperature_sensor"} 1
+sas_enclosure_element_status{card="9500-16i",element="Fan1",enclosure="1:0:24:0",status="ok",type="cooling"} 1
+sas_enclosure_element_status{card="9500-16i",element="Fan2",enclosure="1:0:24:0",status="critical",type="cooling"} 1
+sas_enclosure_element_status{card="9500-16i",element="PS1",enclosure="1:0:24:0",status="ok",type="power_supply"} 1
+sas_enclosure_element_status{card="9500-16i",element="PS2",enclosure="1:0:24:0",status="critical",type="power_supply"} 1
+sas_enclosure_element_status{card="9500-16i",element="PS3",enclosure="1:0:24:0",status="not_installed",type="power_supply"} 1
+# HELP sas_enclosure_fan_speed_rpm How fast a fan the enclosure watches is turning, in turns a minute.
+# TYPE sas_enclosure_fan_speed_rpm gauge
+sas_enclosure_fan_speed_rpm{card="9500-16i",element="Fan1",enclosure="1:0:24:0"} 5400
+sas_enclosure_fan_speed_rpm{card="9500-16i",element="Fan2",enclosure="1:0:24:0"} 0
+# HELP sas_enclosure_info Always 1, with the enclosure's maker, product and revision, the expander it speaks through, and its own identifier, which stays the same when the kernel's name for the enclosure changes.
+# TYPE sas_enclosure_info gauge
+sas_enclosure_info{card="9500-16i",enclosure="1:0:24:0",expander="expander-1:0",id="5003048000000002",product="SC846-P",revision="100b",vendor="SMC"} 1
+# HELP sas_enclosure_power_supply_problem Whether a power supply is in that particular trouble (1) or not (0): ac_fail, dc_fail, dc_overvoltage, dc_undervoltage, dc_overcurrent, overtemperature_fail, temperature_warning or off.
+# TYPE sas_enclosure_power_supply_problem gauge
+sas_enclosure_power_supply_problem{card="9500-16i",element="PS1",enclosure="1:0:24:0",problem="ac_fail"} 0
+sas_enclosure_power_supply_problem{card="9500-16i",element="PS1",enclosure="1:0:24:0",problem="dc_fail"} 0
+sas_enclosure_power_supply_problem{card="9500-16i",element="PS1",enclosure="1:0:24:0",problem="off"} 0
+sas_enclosure_power_supply_problem{card="9500-16i",element="PS2",enclosure="1:0:24:0",problem="ac_fail"} 1
+sas_enclosure_power_supply_problem{card="9500-16i",element="PS2",enclosure="1:0:24:0",problem="dc_fail"} 0
+sas_enclosure_power_supply_problem{card="9500-16i",element="PS2",enclosure="1:0:24:0",problem="off"} 0
+# HELP sas_enclosure_slot_fault Whether the slot's fault light is asked for or the enclosure senses a fault there (1) or not (0).
+# TYPE sas_enclosure_slot_fault gauge
+sas_enclosure_slot_fault{card="9500-16i",enclosure="1:0:24:0",slot="0"} 0
+sas_enclosure_slot_fault{card="9500-16i",enclosure="1:0:24:0",slot="1"} 1
+sas_enclosure_slot_fault{card="9500-16i",enclosure="1:0:24:0",slot="2"} 0
+sas_enclosure_slot_fault{card="9500-16i",enclosure="1:0:24:0",slot="3"} 0
+# HELP sas_enclosure_slot_locate Whether the slot's locate light is on (1) or not (0).
+# TYPE sas_enclosure_slot_locate gauge
+sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="0"} 0
+sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="1"} 0
+sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="2"} 1
+sas_enclosure_slot_locate{card="9500-16i",enclosure="1:0:24:0",slot="3"} 0
+# HELP sas_enclosure_slot_status Always 1, with what the enclosure says of the slot: ok, not_installed for an empty one, or critical, non_critical, unrecoverable, unavailable, unknown and unsupported.
+# TYPE sas_enclosure_slot_status gauge
+sas_enclosure_slot_status{card="9500-16i",enclosure="1:0:24:0",slot="0",status="ok"} 1
+sas_enclosure_slot_status{card="9500-16i",enclosure="1:0:24:0",slot="1",status="critical"} 1
+sas_enclosure_slot_status{card="9500-16i",enclosure="1:0:24:0",slot="2",status="not_installed"} 1
+sas_enclosure_slot_status{card="9500-16i",enclosure="1:0:24:0",slot="3",status="not_installed"} 1
+# HELP sas_enclosure_slots How many slots the enclosure has.
+# TYPE sas_enclosure_slots gauge
+sas_enclosure_slots{card="9500-16i",enclosure="1:0:24:0"} 4
+# HELP sas_enclosure_temperature_celsius What one of the enclosure's temperature sensors reads.
+# TYPE sas_enclosure_temperature_celsius gauge
+sas_enclosure_temperature_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0"} 34
+# HELP sas_enclosure_temperature_limit_celsius A limit the enclosure holds one of its temperature sensors to, by which: high_critical, high_warning, low_warning or low_critical.
+# TYPE sas_enclosure_temperature_limit_celsius gauge
+sas_enclosure_temperature_limit_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0",limit="high_critical"} 50
+sas_enclosure_temperature_limit_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0",limit="high_warning"} 46
+sas_enclosure_temperature_limit_celsius{card="9500-16i",element="Backplane",enclosure="1:0:24:0",limit="low_warning"} 10
+# HELP sas_enclosure_voltage_volts What one of the enclosure's voltage sensors reads.
+# TYPE sas_enclosure_voltage_volts gauge
+sas_enclosure_voltage_volts{card="9500-16i",element="12V",enclosure="1:0:24:0"} 11.2
+sas_enclosure_voltage_volts{card="9500-16i",element="5V",enclosure="1:0:24:0"} 5.04
+# HELP sas_expander_info Always 1, with the expander's maker, product and revision, and its SAS address, which stays the same when the kernel's name for the expander changes.
+# TYPE sas_expander_info gauge
+sas_expander_info{card="9500-16i",expander="expander-1:0",product="SC846-P",revision="100b",sas_address="5003048000000002",vendor="SMC"} 1
+# HELP sas_phy_errors_total Errors the phy has counted on its link since it was last reset, by kind: invalid_dword, running_disparity, loss_of_dword_sync and phy_reset_problem. One that keeps growing is a cable, a connector or a slot going bad.
+# TYPE sas_phy_errors_total counter
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="",phy="1"} 0
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="1"} 0
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="12"} 13
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="13"} 5
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="invalid_dword",expander="expander-1:0",phy="40"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="",phy="1"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="expander-1:0",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="expander-1:0",phy="1"} 1
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="expander-1:0",phy="12"} 3
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="expander-1:0",phy="13"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="expander-1:0",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="loss_of_dword_sync",expander="expander-1:0",phy="40"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="",phy="1"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="expander-1:0",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="expander-1:0",phy="1"} 1
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="expander-1:0",phy="12"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="expander-1:0",phy="13"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="expander-1:0",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="phy_reset_problem",expander="expander-1:0",phy="40"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="",phy="1"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="0"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="1"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="12"} 2
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="13"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="2"} 0
+sas_phy_errors_total{card="9500-16i",error="running_disparity",expander="expander-1:0",phy="40"} 0
+# HELP sas_phy_info Always 1, with what is on the other end of the phy's link: device for a disk or an enclosure's own processor, expander for a further expander, upstream for the way back to the card, none for nothing the kernel lists.
+# TYPE sas_phy_info gauge
+sas_phy_info{attached="device",card="9500-16i",expander="expander-1:0",phy="0"} 1
+sas_phy_info{attached="device",card="9500-16i",expander="expander-1:0",phy="1"} 1
+sas_phy_info{attached="device",card="9500-16i",expander="expander-1:0",phy="40"} 1
+sas_phy_info{attached="expander",card="9500-16i",expander="",phy="0"} 1
+sas_phy_info{attached="expander",card="9500-16i",expander="",phy="1"} 1
+sas_phy_info{attached="none",card="9500-16i",expander="",phy="2"} 1
+sas_phy_info{attached="none",card="9500-16i",expander="expander-1:0",phy="2"} 1
+sas_phy_info{attached="none",card="9500-16i",expander="expander-1:0",phy="43"} 1
+sas_phy_info{attached="upstream",card="9500-16i",expander="expander-1:0",phy="12"} 1
+sas_phy_info{attached="upstream",card="9500-16i",expander="expander-1:0",phy="13"} 1
+# HELP sas_phy_link_rate_gigabits_per_second The speed the phy's link came up at, in gigabits a second: 12, 6, 3 or 1.5 for SAS, and 0 with no link.
+# TYPE sas_phy_link_rate_gigabits_per_second gauge
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0"} 12
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="1"} 12
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="2"} 0
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="0"} 12
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 6
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="12"} 12
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="13"} 12
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="2"} 0
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="40"} 12
+sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="43"} 0
+# HELP sas_phy_link_state Always 1, with what the phy says of its link: up, down, disabled, failed when the two ends could not agree a speed, spinup_hold for a disk waiting to be told to spin up, or other.
+# TYPE sas_phy_link_state gauge
+sas_phy_link_state{card="9500-16i",expander="",phy="0",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="",phy="1",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="",phy="2",state="down"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="0",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="1",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="12",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="13",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="2",state="failed"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="40",state="up"} 1
+sas_phy_link_state{card="9500-16i",expander="expander-1:0",phy="43",state="down"} 1
+# HELP sas_phy_maximum_link_rate_gigabits_per_second The most the phy is set to offer, in gigabits a second: a link slower than both its ends offer has been held back by something between them.
+# TYPE sas_phy_maximum_link_rate_gigabits_per_second gauge
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="1"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="2"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="0"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="1"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="12"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="13"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="2"} 12
+sas_phy_maximum_link_rate_gigabits_per_second{card="9500-16i",expander="expander-1:0",phy="40"} 12
+# HELP sas_poll_duration_seconds How long the last round of each schedule took.
+# TYPE sas_poll_duration_seconds gauge
+sas_poll_duration_seconds{card="9500-16e",poll="links"} 0
+sas_poll_duration_seconds{card="9500-16i",poll="enclosures"} 3
+sas_poll_duration_seconds{card="9500-16i",poll="links"} 0.75
+sas_poll_duration_seconds{card="9500-16i",poll="sensors"} 0.12
+# HELP sas_poll_failures_total How many rounds of each schedule have failed since the tool started.
+# TYPE sas_poll_failures_total counter
+sas_poll_failures_total{card="9500-16e",poll="links"} 3
+sas_poll_failures_total{card="9500-16i",poll="enclosures"} 2
+sas_poll_failures_total{card="9500-16i",poll="links"} 0
+sas_poll_failures_total{card="9500-16i",poll="sensors"} 0
+# HELP sas_poll_interval_seconds How often each schedule is asked.
+# TYPE sas_poll_interval_seconds gauge
+sas_poll_interval_seconds{card="9500-16e",poll="links"} 60
+sas_poll_interval_seconds{card="9500-16i",poll="enclosures"} 300
+sas_poll_interval_seconds{card="9500-16i",poll="links"} 60
+sas_poll_interval_seconds{card="9500-16i",poll="sensors"} 60
+# HELP sas_poll_last_success_timestamp_seconds When each schedule was last answered in full, in seconds since 1970.
+# TYPE sas_poll_last_success_timestamp_seconds gauge
+sas_poll_last_success_timestamp_seconds{card="9500-16i",poll="enclosures"} 9.4668474e+08
+sas_poll_last_success_timestamp_seconds{card="9500-16i",poll="links"} 9.466848e+08
+sas_poll_last_success_timestamp_seconds{card="9500-16i",poll="sensors"} 9.466848e+08
