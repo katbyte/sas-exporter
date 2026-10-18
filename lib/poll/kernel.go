@@ -221,9 +221,17 @@ type Sensors struct {
 	Temperatures []Temperature
 	// Speed is how fast the card's processor runs as a share of its full speed, and 0 for a card that does not say. PowerMode is the power it runs
 	// on, full, reduced or standby, and empty for a card that does not say.
-	Speed      float64
-	PowerMode  string
-	Enclosures []EnclosureSensors
+	Speed     float64
+	PowerMode string
+	// Connectors is which of the card's own connectors each of its phys is wired to, as printed beside it: C0.0. Empty for a card that does not
+	// say.
+	Connectors []CardConnector
+	// Changes is how many times each phy's link has changed, the card's own and those of every expander it has found, as the card counts them; and
+	// ExpanderChanges how many times anything about each expander has. The card keeps eight bits of a phy's count and sixteen of an expander's,
+	// so each goes round to 0.
+	Changes         []LinkChanges
+	ExpanderChanges []ExpanderChanges
+	Enclosures      []EnclosureSensors
 	// Unread is what would not answer this time, and nil when everything asked did. The rest is as it was read.
 	Unread error
 	// Unavailable says what could not be asked at all here and why, as a line for the log: no leave to open a device, say. Empty when everything
@@ -233,7 +241,27 @@ type Sensors struct {
 
 // Nothing says there is not one reading here: nothing could be asked, or there was nothing to ask.
 func (s *Sensors) Nothing() bool {
-	return len(s.Temperatures) == 0 && len(s.Enclosures) == 0 && s.Unread == nil
+	return len(s.Temperatures) == 0 && s.Speed == 0 && len(s.Connectors) == 0 && len(s.Changes) == 0 && len(s.Enclosures) == 0 && s.Unread == nil
+}
+
+// CardConnector is one of a card's own phys and the connector on the card it is wired to.
+type CardConnector struct {
+	Phy       int
+	Connector string
+}
+
+// LinkChanges is how many times one phy's link has changed: dropped, come back, or come back at another speed. Expander is the kernel's name for
+// the expander the phy is on, and empty for one of the card's own.
+type LinkChanges struct {
+	Expander string
+	Phy      int
+	Count    int
+}
+
+// ExpanderChanges is how many times anything about one expander has changed, as the card counts: a link of its, or what is beyond one.
+type ExpanderChanges struct {
+	Expander string
+	Count    int
 }
 
 // Temperature is one temperature a card takes of itself.

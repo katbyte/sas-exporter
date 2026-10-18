@@ -26,9 +26,15 @@ says where that is, for a container given the host's somewhere else.
 
 What the kernel does not keep is asked of the hardware itself every minute: each
 enclosure for its fans, power supplies, temperatures and voltages, and each card for its own
-temperature. That means opening device files under --dev, which takes root. Without leave to,
-the rest is reported without them. --sensors names which are asked: all, none, or any of
-enclosures and cards.
+temperature, its connectors and how often each link has changed. That means opening device
+files under --dev, which takes root. Without leave to, the rest is reported without them.
+
+Everything is reported unless --skip leaves it out: a list of poll, cards, expanders, phys,
+phy-errors, link-changes, devices, enclosures, slots, card-sensors and enclosure-sensors. A
+part left out is not asked for either: --skip phy-errors,slots spares the expanders and the
+enclosures those questions. --metrics names the only parts to ask about instead, and keeps
+what each is within: --metrics slots asks about the enclosures' slots and nothing else. Whether
+each card is up is always reported.
 
 Every reading says which card it hangs off in its card label, by the card's model: 9500-16i.
 --card-names gives a card a name of your choosing in place of that, as 9500-16e=jbod, where a
@@ -38,8 +44,8 @@ card is named by what it goes by without one or by its SAS address.
 scrapes the page does not say whose it is.
 
 Every setting is also an environment variable: SAS_EXPORTER_SYSFS, SAS_EXPORTER_DEV,
-SAS_EXPORTER_LISTEN, SAS_EXPORTER_LABELS, SAS_EXPORTER_SENSORS, SAS_EXPORTER_CARD_NAMES and
-SAS_EXPORTER_INTERVALS.`,
+SAS_EXPORTER_LISTEN, SAS_EXPORTER_LABELS, SAS_EXPORTER_METRICS, SAS_EXPORTER_SKIP,
+SAS_EXPORTER_CARD_NAMES and SAS_EXPORTER_INTERVALS.`,
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {

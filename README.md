@@ -68,7 +68,8 @@ All are optional. Each can be a flag, an environment variable, or a line in a se
 | `SAS_EXPORTER_LISTEN` | `--listen` | `:9088` | the address the page is served on |
 | `SAS_EXPORTER_LABELS` | `--labels` | none | labels for every reading, as `name=value,name=value` |
 | `SAS_EXPORTER_CARD_NAMES` | `--card-names` | none | your own names for cards, as `9500-16e=jbod` |
-| `SAS_EXPORTER_SENSORS` | `--sensors` | `all` | what is asked of the hardware: `all`, `none`, `enclosures` or `cards` |
+| `SAS_EXPORTER_METRICS` | `--metrics` | all | the only [parts](docs/readings.md#leaving-parts-out) to ask about: `enclosures` |
+| `SAS_EXPORTER_SKIP` | `--skip` | none | [parts to leave out](docs/readings.md#leaving-parts-out), which are then not asked for: `phy-errors,slots` |
 | `SAS_EXPORTER_INTERVALS` | `--intervals` | `links=1m,enclosures=5m,sensors=1m` | how often each part is read: `links` the cards, lanes and disks, `enclosures` the slots, `sensors` the fans and temperatures |
 | `SAS_EXPORTER_SYSFS` | `--sysfs` | `/sys` | where the kernel's `/sys` is |
 | `SAS_EXPORTER_DEV` | `--dev` | `/dev` | where the device files are |

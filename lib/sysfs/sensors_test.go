@@ -2,6 +2,7 @@ package sysfs_test
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/katbyte/go-kt/pointer"
+	"github.com/katbyte/sas-exporter/lib/mpt"
 	"github.com/katbyte/sas-exporter/lib/poll"
 	"github.com/katbyte/sas-exporter/lib/ses"
 	"github.com/katbyte/sas-exporter/lib/ses/sestest"
@@ -23,7 +25,9 @@ import (
 // the device each is asked through, and cards that answer with theirs, by the number their driver knows them by. It counts what it was asked.
 type hardware struct {
 	shelves map[string]*sestest.Shelf
-	cards   map[uint32][]byte
+	// cards is each card's page with its temperatures in, and pages every other page of its own it answers with, by what was asked
+	cards map[uint32][]byte
+	pages map[uint32]map[mpt.Page][]byte
 	// failing is what every question of that kind fails with, when it is set
 	failEnclosures error
 	failCards      error
@@ -32,9 +36,10 @@ type hardware struct {
 	noLimits bool
 	noLanes  bool
 	asked    []string
-	// limits and lanes count the times each of those pages was asked for
-	limits int
-	lanes  int
+	// limits and lanes count the times each of those pages was asked for, and cardAsks each of a card's own pages
+	limits   int
+	lanes    int
+	cardAsks map[mpt.Page]int
 }
 
 func (h *hardware) devices() sysfs.Devices {
@@ -67,13 +72,20 @@ func (h *hardware) devices() sysfs.Devices {
 
 			return map[byte][]byte{ses.PageConfiguration: configuration, ses.PageStatus: status, ses.PageNames: names, ses.PageLimits: shelf.Limits(), ses.PageAdditional: shelf.Additional()}[page], nil
 		},
-		CardPage: func(_ context.Context, driver string, id uint32) ([]byte, error) {
+		CardPage: func(_ context.Context, driver string, id uint32, page mpt.Page) ([]byte, error) {
 			h.asked = append(h.asked, driver)
 			if h.failCards != nil {
 				return nil, h.failCards
 			}
+			if h.cardAsks == nil {
+				h.cardAsks = map[mpt.Page]int{}
+			}
+			h.cardAsks[page]++
+			if page == mpt.IOUnit7 {
+				return h.cards[id], nil
+			}
 
-			return h.cards[id], nil
+			return h.pages[id][page], nil
 		},
 	}
 }
@@ -120,6 +132,47 @@ func machine(t *testing.T) (*sysfstest.Tree, *sysfstest.Shelf, *hardware) {
 	}
 
 	return tree, shelf, h
+}
+
+// The pages a made-up card answers with, laid out as a real one lays them out.
+
+// manufacturing7 is a card's page naming the connector each of its phys is wired to, one name for each phy from the first.
+func manufacturing7(names ...string) []byte {
+	page := make([]byte, 0x24+len(names)*0x1c)
+	page[0x20] = byte(len(names)) //nolint:gosec // G115: a test's own few phys
+	for phy, name := range names {
+		copy(page[0x24+phy*0x1c+4:], name)
+		page[0x24+phy*0x1c+0x14] = 0x02
+	}
+
+	return page
+}
+
+// phyPage is a card's page about one of its own phys, whose link has changed that many times.
+func phyPage(changes byte) []byte {
+	page := make([]byte, 0x24)
+	page[0x16] = changes
+
+	return page
+}
+
+// expanderPage is a card's page about an expander it has found, by its address, its handle, how many phys it has and how often it has changed.
+func expanderPage(address [8]byte, handle uint16, phys byte, changes uint16) []byte {
+	page := make([]byte, 0x30)
+	binary.LittleEndian.PutUint64(page[0x0c:], binary.BigEndian.Uint64(address[:]))
+	binary.LittleEndian.PutUint16(page[0x18:], handle)
+	binary.LittleEndian.PutUint16(page[0x1c:], changes)
+	page[0x20] = phys
+
+	return page
+}
+
+// expanderPhyPage is a card's page about one phy of an expander, whose link has changed that many times.
+func expanderPhyPage(phy, changes byte) []byte {
+	page := make([]byte, 0x2c)
+	page[0x1e], page[0x20] = changes, phy
+
+	return page
 }
 
 // part is the thing of that kind and name in what an enclosure said, and fails the test when it is not there.
@@ -581,5 +634,72 @@ func TestTheLimitsAnEnclosureHoldsItsSensorsTo(t *testing.T) {
 	}
 	if h.limits != 1 {
 		t.Errorf("the enclosure was asked for a page it does not have %d times in three rounds, want once", h.limits)
+	}
+}
+
+// A card says which of its connectors each of its phys is wired to, which it is asked the once, and how many times each link has changed: its own
+// phys' and those of the expander it has found, which goes by the kernel's name for it. An expander the kernel does not have is left out.
+func TestWhatACardSaysOfItsLinks(t *testing.T) {
+	t.Parallel()
+
+	tree, _, h := machine(t)
+	backplane := sysfstest.Address("0x5000000000000002")
+	h.pages = map[uint32]map[mpt.Page][]byte{0: {
+		mpt.Manufacturing7: manufacturing7("C0.0", "C0.0", "C0.1", "C0.1"),
+		mpt.PhyPage(0):     phyPage(0), mpt.PhyPage(1): phyPage(0), mpt.PhyPage(2): phyPage(3), mpt.PhyPage(3): phyPage(0),
+		mpt.NextExpanderPage(0xffff): expanderPage(backplane, 9, 2, 300),
+		mpt.ExpanderPhyPage(9, 0):    expanderPhyPage(0, 1),
+		mpt.ExpanderPhyPage(9, 1):    expanderPhyPage(1, 255),
+		mpt.NextExpanderPage(9):      expanderPage([8]byte{0x50, 0, 0, 0, 0, 0, 0, 0x99}, 10, 1, 1),
+		mpt.ExpanderPhyPage(10, 0):   expanderPhyPage(0, 1),
+	}}
+
+	k := sysfs.New(tree.Root, h.devices())
+	for range 2 {
+		got, err := k.Sensors(t.Context(), card)
+		if err != nil || got.Unread != nil || got.Unavailable != "" {
+			t.Fatalf("sensors: %v, %v unread and %q unavailable; want nothing amiss", err, got.Unread, got.Unavailable)
+		}
+
+		connectors := []poll.CardConnector{{Phy: 0, Connector: "C0.0"}, {Phy: 1, Connector: "C0.0"}, {Phy: 2, Connector: "C0.1"}, {Phy: 3, Connector: "C0.1"}}
+		if !slices.Equal(got.Connectors, connectors) {
+			t.Errorf("connectors = %+v, want %+v", got.Connectors, connectors)
+		}
+
+		changes := []poll.LinkChanges{{Phy: 0}, {Phy: 1}, {Phy: 2, Count: 3}, {Phy: 3}, {Expander: "expander-1:0", Phy: 0, Count: 1}, {Expander: "expander-1:0", Phy: 1, Count: 255}}
+		if !slices.Equal(got.Changes, changes) || !slices.Equal(got.ExpanderChanges, []poll.ExpanderChanges{{Expander: "expander-1:0", Count: 300}}) {
+			t.Errorf("changes = %+v and %+v, want %+v and expander-1:0 at 300", got.Changes, got.ExpanderChanges, changes)
+		}
+	}
+
+	if h.cardAsks[mpt.Manufacturing7] != 1 || h.cardAsks[mpt.PhyPage(2)] != 2 {
+		t.Errorf("the card was asked for its connectors %d times and for a phy %d times in two rounds, want once and twice", h.cardAsks[mpt.Manufacturing7], h.cardAsks[mpt.PhyPage(2)])
+	}
+}
+
+// A card that fails when asked how often its links have changed is asked nothing more, its temperature included, until the program is started
+// again; what it said before it failed is still reported.
+func TestACardThatFailsPartWayIsNotAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	tree, _, h := machine(t)
+	k := sysfs.New(tree.Root, sysfs.Devices{CardPage: func(_ context.Context, _ string, _ uint32, page mpt.Page) ([]byte, error) {
+		h.asked = append(h.asked, page.String())
+		if page == mpt.PhyPage(1) {
+			return nil, errors.New("the card did not answer in 10 seconds, and its driver resets a card that does not")
+		}
+
+		return h.cards[0], nil
+	}})
+
+	got, err := k.Sensors(t.Context(), card)
+	if err != nil || got.Unread == nil || !strings.Contains(got.Unread.Error(), "how often the card's links have changed") || len(got.Temperatures) != 2 {
+		t.Fatalf("the first round: %v, %v unread and %d temperatures; want the failure said and the temperatures kept", err, got.Unread, len(got.Temperatures))
+	}
+
+	asked := len(h.asked)
+	again, _ := k.Sensors(t.Context(), card)
+	if len(h.asked) != asked || !strings.Contains(again.Unavailable, "not asked again") {
+		t.Errorf("the next round asked the card %d more times and said %q; want nothing asked, and why", len(h.asked)-asked, again.Unavailable)
 	}
 }

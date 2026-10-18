@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+- **Leave out any part**, and it is not asked for either: `--skip` (`SAS_EXPORTER_SKIP`) takes a list of `poll`, `cards`, `expanders`, `phys`, `phy-errors`, `link-changes`, `devices`, `enclosures`, `slots`, `card-sensors` and `enclosure-sensors`. Everything is on unless named.
+- **Or name the only parts to ask about**: `--metrics` (`SAS_EXPORTER_METRICS`) takes the same names, and `--skip` then leaves parts out of those.
+- **`--skip` replaces `--sensors`**, which is gone: `--sensors none` is now `--skip card-sensors,enclosure-sensors`, `--sensors enclosures` is `--skip card-sensors`, and `--sensors cards` is `--skip enclosure-sensors`.
+- **Which connector on the card each lane is wired to**, as printed beside it (`C0.0`), on `sas_phy_connector_info` beside the backplanes' own. *Root*.
+- **How often each link has dropped and come back**, the card's own and every expander's, as the card counts, and how often anything about each expander has changed. A cable that comes and goes between polls shows here. *Root*.
+
 ## 0.2.0 (2026-10-15)
 
 More of what the kernel lists, after checking 0.1.0 against everything it offers on a real machine.

@@ -13,6 +13,7 @@ import (
 	"github.com/katbyte/go-kt/prometheus/poller"
 	"github.com/katbyte/sas-exporter/lib/poll"
 	"github.com/katbyte/sas-exporter/lib/readings"
+	"github.com/katbyte/sas-exporter/lib/skip"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -75,10 +76,13 @@ func internal() poll.Card {
 		}),
 		Enclosures: answered([]poll.Enclosure{{Name: shelf, ID: "5003048000000002", Vendor: "SMC", Product: "SC846-P", Revision: "100b", Expander: backplane, VendorSpecific: "x40-66.16.11.0", Slots: slots}}),
 		Sensors: answered(poll.Sensors{
-			Temperatures: []poll.Temperature{{Sensor: poll.SensorChip, Celsius: 53}, {Sensor: poll.SensorBoard, Celsius: 41}},
-			Speed:        0.5,
-			PowerMode:    "reduced",
-			Enclosures:   []poll.EnclosureSensors{{Name: shelf, Conditions: poll.Conditions{Critical: true}, Elements: elements(), Lanes: []poll.Lane{{Expander: backplane, Phy: 12, Connector: "ConnectorA"}, {Expander: backplane, Phy: 13, Connector: "ConnectorA"}, {Expander: backplane, Phy: 0, Connector: "Drive Connector 00"}}}},
+			Temperatures:    []poll.Temperature{{Sensor: poll.SensorChip, Celsius: 53}, {Sensor: poll.SensorBoard, Celsius: 41}},
+			Speed:           0.5,
+			PowerMode:       "reduced",
+			Connectors:      []poll.CardConnector{{Phy: 0, Connector: "C0.0"}, {Phy: 1, Connector: "C0.0"}},
+			Changes:         []poll.LinkChanges{{Phy: 0, Count: 0}, {Phy: 1, Count: 2}, {Expander: backplane, Phy: 12, Count: 5}},
+			ExpanderChanges: []poll.ExpanderChanges{{Expander: backplane, Count: 41}},
+			Enclosures:      []poll.EnclosureSensors{{Name: shelf, Conditions: poll.Conditions{Critical: true}, Elements: elements(), Lanes: []poll.Lane{{Expander: backplane, Phy: 12, Connector: "ConnectorA"}, {Expander: backplane, Phy: 13, Connector: "ConnectorA"}, {Expander: backplane, Phy: 0, Connector: "Drive Connector 00"}}}},
 		}),
 
 		LinksRound:      poll.RoundState{Ran: true, OK: true, Took: 750 * time.Millisecond, LastSuccess: now},
@@ -432,6 +436,11 @@ func TestWhatTheHardwareMeasures(t *testing.T) {
 		`sas_card_speed_ratio{card="9500-16i"} 0.5`,
 		`sas_phy_connector_info{card="9500-16i",connector="ConnectorA",enclosure="1:0:24:0",expander="expander-1:0",phy="12"} 1`,
 		`sas_phy_connector_info{card="9500-16i",connector="Drive Connector 00",enclosure="1:0:24:0",expander="expander-1:0",phy="0"} 1`,
+		`sas_phy_connector_info{card="9500-16i",connector="C0.0",enclosure="",expander="",phy="1"} 1`,
+		`sas_phy_link_changes_total{card="9500-16i",expander="",phy="1"} 2`,
+		`sas_phy_link_changes_total{card="9500-16i",expander="",phy="0"} 0`,
+		`sas_phy_link_changes_total{card="9500-16i",expander="expander-1:0",phy="12"} 5`,
+		`sas_expander_changes_total{card="9500-16i",expander="expander-1:0"} 41`,
 		`sas_card_power_mode{card="9500-16i",mode="reduced"} 1`,
 		`sas_card_power_mode{card="9500-16i",mode="full"} 0`,
 		`sas_card_temperature_celsius{card="9500-16i",sensor="board"} 41`,
@@ -512,4 +521,17 @@ func TestWithNoLeaveToAskTheHardware(t *testing.T) {
 		}
 	}
 	expect(t, got, `sas_card_up{card="9500-16i"} 1`, `sas_enclosure_slot_status{card="9500-16i",enclosure="1:0:24:0",slot="0",status="ok"} 1`)
+}
+
+// A part left out is off the page whole, what is within it too, and whether the card is up is on it whatever is left out.
+func TestPartsLeftOutAreOffThePage(t *testing.T) {
+	t.Parallel()
+
+	got := page(t, readings.New(fixed{Cards: []poll.Card{internal()}}).Skipping(skip.Set{skip.Cards: true, skip.Phys: true, skip.EnclosureSensors: true}))
+	for _, absent := range []string{"sas_card_info", "sas_card_pcie", "sas_phy_", "sas_enclosure_fan_speed_rpm", "sas_enclosure_element_status"} {
+		if has(got, absent) {
+			t.Errorf("the page has %s with it left out:\n%s", absent, got)
+		}
+	}
+	expect(t, got, `sas_card_up{card="9500-16i"} 1`, `sas_card_temperature_celsius{card="9500-16i",sensor="chip"} 53`, `sas_expander_info{card="9500-16i"`, `sas_device_info{card="9500-16i"`, `sas_enclosure_slot_status{card="9500-16i"`)
 }

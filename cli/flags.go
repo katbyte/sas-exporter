@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/katbyte/go-kt/prometheus/poller"
 	"github.com/katbyte/sas-exporter/lib/poll"
 	"github.com/katbyte/sas-exporter/lib/readings"
+	"github.com/katbyte/sas-exporter/lib/skip"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -20,24 +23,15 @@ import (
 
 // The defaults. Links are read every minute: each phy's error counts are fetched from the card or the expander as they are read, which is too
 // much to do for every scrape and often enough to see a count grow. Slots are read every few minutes, since each reading of one has the kernel
-// fetch its enclosure's whole status and a slot seldom changes. Sensors are read every minute, which is four questions of each enclosure and two
-// of each card.
+// fetch its enclosure's whole status and a slot seldom changes. Sensors are read every minute, which is five questions of each enclosure and
+// about a hundred of each card.
 const (
 	defaultSysfs              = "/sys"
 	defaultDev                = "/dev"
 	defaultListen             = ":9088"
-	defaultSensors            = sensorsAll
 	defaultLinksInterval      = time.Minute
 	defaultEnclosuresInterval = 5 * time.Minute
 	defaultSensorsInterval    = time.Minute
-)
-
-// What --sensors can name: which of the hardware is asked itself for what the kernel does not keep.
-const (
-	sensorsAll        = "all"
-	sensorsEnclosures = "enclosures"
-	sensorsCards      = "cards"
-	sensorsNone       = "none"
 )
 
 type FlagData struct {
@@ -45,7 +39,8 @@ type FlagData struct {
 	Dev       string `mapstructure:"dev"`
 	Listen    string `mapstructure:"listen"`
 	Labels    string `mapstructure:"labels"`
-	Sensors   string `mapstructure:"sensors"`
+	Metrics   string `mapstructure:"metrics"`
+	Skip      string `mapstructure:"skip"`
 	CardNames string `mapstructure:"card-names"`
 	Intervals string `mapstructure:"intervals"`
 }
@@ -56,7 +51,8 @@ var envNames = map[string]string{
 	"dev":        "SAS_EXPORTER_DEV",
 	"listen":     "SAS_EXPORTER_LISTEN",
 	"labels":     "SAS_EXPORTER_LABELS",
-	"sensors":    "SAS_EXPORTER_SENSORS",
+	"metrics":    "SAS_EXPORTER_METRICS",
+	"skip":       "SAS_EXPORTER_SKIP",
 	"card-names": "SAS_EXPORTER_CARD_NAMES",
 	"intervals":  "SAS_EXPORTER_INTERVALS",
 }
@@ -71,7 +67,8 @@ func configureFlags(root *cobra.Command) error {
 	pflags.String("dev", defaultDev, "where the machine's device files are, for what is asked of the hardware itself")
 	pflags.String("listen", defaultListen, "serve the metrics page on this address")
 	pflags.String("labels", "", "labels to put on every reading, as name=value,name=value: hostname=nas say, when whatever scrapes the page does not add its own")
-	pflags.String("sensors", defaultSensors, "what is asked of the hardware itself, which takes leave to open its devices: all, none, or any of enclosures (fans, power supplies, temperatures, voltages) and cards (each card's own temperature) with a comma between")
+	pflags.String("metrics", "", "the only parts to ask about, with a comma between, named as for --skip: every one unless set, and with each named what it is within and what is within it")
+	pflags.String("skip", "", "parts to leave off the page, and not ask for, with a comma between: poll (how the asking goes), cards, expanders, phys, phy-errors, link-changes, devices, enclosures, slots, card-sensors (all that is asked of a card itself), enclosure-sensors (all that is asked of an enclosure itself)")
 	pflags.String("card-names", "", "names for the cards in place of the ones they go by, as card=name,card=name: 9500-16e=jbod say, where a card is named by what it goes by without one or by its SAS address")
 	pflags.String("intervals", "", "how often each part is asked about, as part=interval,part=interval: links (the cards, phys, error counts and disks, every 1m), enclosures (the slots, every 5m) and sensors (fans and temperatures, every 1m)")
 	pflags.String("config", "", "read settings from this file and no other, in place of ./.sas-exporter or ~/.sas-exporter (or export SAS_EXPORTER_CONFIG)")
@@ -160,34 +157,40 @@ func GetFlags() *FlagData {
 	return &f
 }
 
-// source is where the cards are read from, and which of the hardware is asked itself.
+// source is where the cards are read from, and what is left out of reading them.
 type source struct {
 	// sysfs is where the kernel's /sys is, and dev where the machine's device files are.
 	sysfs string
 	dev   string
-	// enclosures and card say whether each is asked for what the kernel does not keep.
-	enclosures bool
-	card       bool
+	// skip is the parts left out, which are neither read nor asked for
+	skip skip.Set
 }
 
-// source is what the settings say to read. --sensors is a list, so that one kind of hardware can be asked and the other left alone.
+// source is what the settings say to read.
 func (f *FlagData) source() (source, error) {
-	s := source{sysfs: f.Sysfs, dev: f.Dev}
-	for named := range strings.SplitSeq(f.Sensors, ",") {
-		switch named = strings.TrimSpace(named); named {
-		case sensorsAll:
-			s.enclosures, s.card = true, true
-		case sensorsEnclosures:
-			s.enclosures = true
-		case sensorsCards:
-			s.card = true
-		case sensorsNone, "":
-		default:
-			return source{}, fmt.Errorf("--sensors (%s): %q is none of %s, %s, %s and %s", envNames["sensors"], named, sensorsAll, sensorsEnclosures, sensorsCards, sensorsNone)
-		}
+	parts, err := f.skipped()
+	if err != nil {
+		return source{}, err
 	}
 
-	return s, nil
+	return source{sysfs: f.Sysfs, dev: f.Dev, skip: parts}, nil
+}
+
+// skipped is the parts the settings leave out: those --metrics does not name, and those --skip does.
+func (f *FlagData) skipped() (skip.Set, error) {
+	parts, err := skip.AllBut(f.Metrics)
+	if err != nil {
+		return nil, fmt.Errorf("--metrics (%s): %w", envNames["metrics"], err)
+	}
+
+	named, err := skip.Parse(f.Skip)
+	if err != nil {
+		return nil, fmt.Errorf("--skip (%s): %w", envNames["skip"], err)
+	}
+
+	maps.Copy(parts, named)
+
+	return parts, nil
 }
 
 // names is the names the settings choose for cards. Two cards under one name would be one card on the page, so a name can be given once.
@@ -257,6 +260,9 @@ func (f *FlagData) poller(connect connector) (*poll.Poller, error) {
 	}
 
 	clog.Log.Infof("reading the kernel's SAS cards under %s, links every %s, enclosures every %s and sensors every %s", f.Sysfs, every.Links, every.Enclosures, every.Sensors)
+	if len(from.skip) > 0 {
+		clog.Log.Infof("leaving out %s", from.skip)
+	}
 
 	return p, nil
 }
@@ -272,7 +278,17 @@ func (f *FlagData) page(asking *poll.Poller) (*metrics.Page, error) {
 		return nil, fmt.Errorf("--labels (%s): %w", envNames["labels"], err)
 	}
 
-	p, err := metrics.New(metrics.Options{Name: name, Labels: labels}, readings.New(asking), asking.Inner())
+	parts, err := f.skipped()
+	if err != nil {
+		return nil, err
+	}
+
+	collectors := []prometheus.Collector{readings.New(asking).Skipping(parts)}
+	if !parts.Has(skip.Poll) {
+		collectors = append(collectors, asking.Inner())
+	}
+
+	p, err := metrics.New(metrics.Options{Name: name, Labels: labels}, collectors...)
 	if err != nil {
 		return nil, fmt.Errorf("--labels (%s): %w", envNames["labels"], err)
 	}

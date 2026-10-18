@@ -7,7 +7,7 @@ Two things are not kept there. They are asked of the hardware itself, through de
 | What | Asked through |
 |---|---|
 | an enclosure's fans, power supplies, temperatures and voltages, and which connector each lane is wired to | the enclosure's own `/dev/sgN` |
-| a card's own temperature, speed and power mode | `/dev/mpt3ctl`, the `mpt3sas` driver's way in to its cards |
+| a card's own temperature, speed and power mode, the connectors its phys are wired to, and how often each link has changed | `/dev/mpt3ctl`, the `mpt3sas` driver's way in to its cards |
 
 ## Without root
 
@@ -16,7 +16,7 @@ Two things are not kept there. They are asked of the hardware itself, through de
 - The log says why, once for each card.
 - Nothing is counted as failed.
 
-`--sensors` chooses what is asked at all: `all`, `none`, `enclosures`, `cards`, or the last two with a comma between.
+`--skip card-sensors` leaves the cards alone, `--skip enclosure-sensors` the enclosures, and the two together ask the hardware nothing. See [leaving parts out](readings.md#leaving-parts-out).
 
 ## What is asked
 
@@ -26,18 +26,19 @@ Two things are not kept there. They are asked of the hardware itself, through de
 - Only cards on the `mpt3sas` driver are asked.
 - An enclosure that will not give its limits, or which connector each lane is wired to, is not asked for that again.
 
-## One caution about a card's temperature
+## One caution about asking a card
 
-- The driver gives a card ten seconds to answer.
+- The driver gives a card ten seconds to answer each question.
 - It resets a card that does not, which holds up every disk behind it while it comes back.
 - A healthy card answers at once: in under a thousandth of a second on the cards this was written on.
-- A card that fails to answer is not asked again until the program is restarted. The log says so.
-- `--sensors enclosures` leaves the cards alone altogether.
+- Each round asks a card about a hundred questions: one for each of its phys and each of its expanders' phys, answered from what the card already knows.
+- The first question a card fails to answer is the last it is asked until the program is restarted. The log says so.
+- `--skip card-sensors` leaves the cards alone altogether, and `--skip link-changes` only the hundred questions.
 
 ## Try it by hand first
 
 ```bash
-sudo sas-exporter print --sensors enclosures   # the enclosures only
+sudo sas-exporter print --skip card-sensors    # the enclosures only
 sudo sas-exporter print                        # the cards as well
 ```
 

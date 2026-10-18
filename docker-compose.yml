@@ -42,7 +42,8 @@ services:
       # - "SAS_EXPORTER_SYSFS=/host/sys"            # where the kernel's /sys is, when the host's is mounted somewhere else
       # - "SAS_EXPORTER_DEV=/host/dev"              # where the machine's devices are: set this with the lines for root above
       # - "SAS_EXPORTER_CARD_NAMES=9500-16e=jbod"   # a name of your choosing for a card, in place of its model
-      # - "SAS_EXPORTER_SENSORS=all"                # what is asked of the hardware itself: all, none, or enclosures and cards
+      # - "SAS_EXPORTER_METRICS=enclosures"        # the only parts to ask about: see docs/readings.md
+      # - "SAS_EXPORTER_SKIP=phy-errors,slots"     # parts to leave out, which are then not asked for: see docs/readings.md
     logging:
       options:
         max-size: 100m

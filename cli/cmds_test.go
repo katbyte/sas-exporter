@@ -93,7 +93,7 @@ func TestMakeBuildsTheCommands(t *testing.T) {
 		}
 	}
 	// a setting is a flag on every command, so it can be given after whichever one is run
-	for _, name := range []string{"sysfs", "dev", "listen", "labels", "sensors", "card-names", "intervals", "config"} {
+	for _, name := range []string{"sysfs", "dev", "listen", "labels", "metrics", "skip", "card-names", "intervals", "config"} {
 		if root.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("no --%s flag", name)
 		}
@@ -148,6 +148,38 @@ func TestPrintWritesThePage(t *testing.T) {
 	// once each, not on a schedule
 	if k.Asked(polltest.Of(polltest.Links, inside)) != 1 || k.Asked(polltest.Of(polltest.Enclosures, outside)) != 1 {
 		t.Errorf("print asked for a card's links %d times and its enclosures %d, want once each", k.Asked(polltest.Of(polltest.Links, inside)), k.Asked(polltest.Of(polltest.Enclosures, outside)))
+	}
+}
+
+// Parts left out are off the page, and the rest is as it always is: whether each card is up stays on whatever is left out, so the page still says
+// the cards are there.
+//
+//nolint:paralleltest // viper is global state; Make mutates it
+func TestPrintLeavesOutWhatItIsTold(t *testing.T) {
+	alone(t)
+
+	root, _ := sysfstest.NAS(t)
+	out, err := run(t, connect, "print", "--sysfs", root, "--dev", t.TempDir(), "--skip", "phys,slots,cards,poll")
+	if err != nil {
+		t.Fatalf("print: %v", err)
+	}
+
+	for name, want := range map[string]int{
+		"sas_card_up":               sysfstest.NASCards,
+		"sas_card_info":             0,
+		"sas_phy_info":              0,
+		"sas_phy_errors_total":      0,
+		"sas_enclosure_info":        sysfstest.NASEnclosures,
+		"sas_enclosure_slot_status": 0,
+		"sas_enclosure_slots":       0,
+		"sas_device_info":           sysfstest.NASDisks,
+		"sas_expander_info":         sysfstest.NASExpanders,
+		"sas_poll_failures_total":   0,
+		"sas_poll_duration_seconds": 0,
+	} {
+		if got := count(out, name); got != want {
+			t.Errorf("with phys, slots, cards and the polling left out: %d readings of %s, want %d", got, name, want)
+		}
 	}
 }
 
@@ -435,12 +467,12 @@ func TestASensorNobodyHasHeardOf(t *testing.T) {
 		alone(t)
 
 		k := twoCards()
-		_, err := run(t, kernel(k), command, "--listen", "127.0.0.1:0", "--sensors", "fans")
-		if err == nil || !strings.Contains(err.Error(), "fans") || !strings.Contains(err.Error(), "SAS_EXPORTER_SENSORS") {
-			t.Errorf("%s --sensors fans = %v, want an error naming the word and the setting", command, err)
+		_, err := run(t, kernel(k), command, "--listen", "127.0.0.1:0", "--skip", "fans")
+		if err == nil || !strings.Contains(err.Error(), "fans") || !strings.Contains(err.Error(), "SAS_EXPORTER_SKIP") {
+			t.Errorf("%s --skip fans = %v, want an error naming the word and the setting", command, err)
 		}
 		if asked := k.Asked(polltest.HBAs); asked != 0 {
-			t.Errorf("%s --sensors fans asked the kernel %d questions before refusing", command, asked)
+			t.Errorf("%s --skip fans asked the kernel %d questions before refusing", command, asked)
 		}
 	}
 }

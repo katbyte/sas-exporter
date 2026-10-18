@@ -181,11 +181,16 @@ sas_enclosure_voltage_limit_ratio{card="9500-16i",element="12V",enclosure="1:0:2
 # TYPE sas_enclosure_voltage_volts gauge
 sas_enclosure_voltage_volts{card="9500-16i",element="12V",enclosure="1:0:24:0"} 11.2
 sas_enclosure_voltage_volts{card="9500-16i",element="5V",enclosure="1:0:24:0"} 5.04
+# HELP sas_expander_changes_total How many times anything about the expander has changed, a link of its or what is beyond one, as the card counts. The card keeps sixteen bits of it.
+# TYPE sas_expander_changes_total counter
+sas_expander_changes_total{card="9500-16i",expander="expander-1:0"} 41
 # HELP sas_expander_info Always 1, with the expander's maker, product and revision, its SAS address, which stays the same when the kernel's name for the expander changes, and the chip it is built on by its maker, number and revision.
 # TYPE sas_expander_info gauge
 sas_expander_info{card="9500-16i",chip="562",chip_revision="3",chip_vendor="LSI",expander="expander-1:0",product="SC846-P",revision="100b",sas_address="5003048000000002",vendor="SMC"} 1
-# HELP sas_phy_connector_info Always 1, with the connector the phy is wired to, as the enclosure the expander is in names it: ConnectorA for a cable's, Drive Connector 05 for a slot's.
+# HELP sas_phy_connector_info Always 1, with the connector the phy is wired to: on a backplane as its enclosure names it, ConnectorA for a cable's and Drive Connector 05 for a slot's; on the card as printed beside it, C0.0, with no expander or enclosure.
 # TYPE sas_phy_connector_info gauge
+sas_phy_connector_info{card="9500-16i",connector="C0.0",enclosure="",expander="",phy="0"} 1
+sas_phy_connector_info{card="9500-16i",connector="C0.0",enclosure="",expander="",phy="1"} 1
 sas_phy_connector_info{card="9500-16i",connector="ConnectorA",enclosure="1:0:24:0",expander="expander-1:0",phy="12"} 1
 sas_phy_connector_info{card="9500-16i",connector="ConnectorA",enclosure="1:0:24:0",expander="expander-1:0",phy="13"} 1
 sas_phy_connector_info{card="9500-16i",connector="Drive Connector 00",enclosure="1:0:24:0",expander="expander-1:0",phy="0"} 1
@@ -249,6 +254,11 @@ sas_phy_info{attached="none",card="9500-16i",expander="expander-1:0",phy="2"} 1
 sas_phy_info{attached="none",card="9500-16i",expander="expander-1:0",phy="43"} 1
 sas_phy_info{attached="upstream",card="9500-16i",expander="expander-1:0",phy="12"} 1
 sas_phy_info{attached="upstream",card="9500-16i",expander="expander-1:0",phy="13"} 1
+# HELP sas_phy_link_changes_total How many times the phy's link has changed, dropped, come back or come back at another speed, as the card counts. The card keeps eight bits of it, so it goes round to 0 after 255, which a rate reads as a restart.
+# TYPE sas_phy_link_changes_total counter
+sas_phy_link_changes_total{card="9500-16i",expander="",phy="0"} 0
+sas_phy_link_changes_total{card="9500-16i",expander="",phy="1"} 2
+sas_phy_link_changes_total{card="9500-16i",expander="expander-1:0",phy="12"} 5
 # HELP sas_phy_link_rate_gigabits_per_second The speed the phy's link came up at, in gigabits a second: 12, 6, 3 or 1.5 for SAS, and 0 with no link.
 # TYPE sas_phy_link_rate_gigabits_per_second gauge
 sas_phy_link_rate_gigabits_per_second{card="9500-16i",expander="",phy="0"} 12

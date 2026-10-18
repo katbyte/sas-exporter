@@ -6,11 +6,12 @@ import (
 
 	"github.com/katbyte/sas-exporter/lib/devices"
 	"github.com/katbyte/sas-exporter/lib/poll"
+	"github.com/katbyte/sas-exporter/lib/skip"
 	"github.com/katbyte/sas-exporter/lib/sysfs"
 )
 
 // connect makes what asks the kernel about its SAS cards: a reader of the /sys it is told, which asks the hardware itself, through the device
-// files it is told, for what it was told to. A /sys that is not there is said now, since a machine with no card looks the same from then on.
+// files it is told, for all it was not told to leave out. A /sys that is not there is said now, since a machine with no card looks the same from then on.
 func connect(from source) (poll.Kernel, error) {
 	info, err := os.Stat(from.sysfs)
 	if err != nil {
@@ -21,12 +22,12 @@ func connect(from source) (poll.Kernel, error) {
 	}
 
 	var ask sysfs.Devices
-	if from.enclosures {
+	if !from.skip.Has(skip.EnclosureSensors) {
 		ask.Diagnostic = devices.Dir(from.dev).Diagnostic
 	}
-	if from.card {
+	if !from.skip.Has(skip.CardSensors) {
 		ask.CardPage = devices.Dir(from.dev).CardPage
 	}
 
-	return sysfs.New(from.sysfs, ask), nil
+	return sysfs.New(from.sysfs, ask).Skipping(from.skip), nil
 }

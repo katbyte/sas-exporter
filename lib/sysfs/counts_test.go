@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/katbyte/sas-exporter/lib/poll"
+	"github.com/katbyte/sas-exporter/lib/skip"
 	"github.com/katbyte/sas-exporter/lib/sysfs/sysfstest"
 )
 
@@ -260,5 +261,41 @@ func TestTheRealMachine(t *testing.T) {
 		if attached[kind] != n {
 			t.Errorf("%d phys have %s on the other end, want %d", attached[kind], kind, n)
 		}
+	}
+}
+
+// A part left out is never read: no error count is fetched from a card or an expander, no slot has the kernel fetch its enclosure's status, and
+// no disk is looked at. What is not left out is read as ever.
+func TestWhatIsLeftOutIsNotRead(t *testing.T) {
+	t.Parallel()
+
+	root, _ := sysfstest.NAS(t)
+	k, asked := refusing(root, 0, func(string) bool { return false })
+	k.Skipping(skip.Set{skip.PhyErrors: true, skip.Slots: true, skip.Devices: true})
+
+	links, err := k.Links(t.Context(), "host1")
+	if err != nil || len(links.Phys) == 0 || len(links.Devices) != 0 || len(links.Expanders) != 2 {
+		t.Fatalf("links: %d phys, %d devices and %d expanders (%v); want the phys and expanders, and no devices", len(links.Phys), len(links.Devices), len(links.Expanders), err)
+	}
+	for i := range links.Phys {
+		if links.Phys[i].Errors != nil {
+			t.Fatalf("phy %d of %q has error counts with them left out", links.Phys[i].Number, links.Phys[i].Expander)
+		}
+	}
+
+	enclosures, err := k.Enclosures(t.Context(), "host1")
+	if err != nil || len(enclosures) != 2 || len(enclosures[0].Slots) != 0 {
+		t.Fatalf("enclosures: %+v (%v), want both, without slots", enclosures, err)
+	}
+
+	for _, path := range *asked {
+		if name := filepath.Base(path); slices.Contains(countFiles[:], name) || name == "status" || name == "iorequest_cnt" {
+			t.Errorf("%s was read with what it is for left out", path)
+		}
+	}
+
+	k.Skipping(skip.Set{skip.Enclosures: true})
+	if enclosures, err := k.Enclosures(t.Context(), "host1"); err != nil || enclosures != nil {
+		t.Errorf("enclosures left out = %+v (%v), want none and nothing read", enclosures, err)
 	}
 }

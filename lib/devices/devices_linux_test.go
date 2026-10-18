@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/katbyte/sas-exporter/lib/mpt"
 )
 
 // file is a file of that name in a directory of the test's own, standing where a device would.
@@ -39,7 +41,7 @@ func TestAskingAFileThatIsNoDevice(t *testing.T) {
 	if _, err := file(t, "sg26", 0o600).Diagnostic(t.Context(), "sg26", 0x01); !noDevice(err) || !strings.Contains(err.Error(), "sg26") {
 		t.Errorf("an enclosure's pages asked of a plain file = %v, want the kernel saying it is no such device, and the file named", err)
 	}
-	if got, err := file(t, cardDevice, 0o600).CardPage(t.Context(), cardDriver, 0); got != nil || !noDevice(err) || !strings.Contains(err.Error(), cardDevice) {
+	if got, err := file(t, cardDevice, 0o600).CardPage(t.Context(), cardDriver, 0, mpt.IOUnit7); got != nil || !noDevice(err) || !strings.Contains(err.Error(), cardDevice) {
 		t.Errorf("a card's page asked of a plain file = % x (%v), want the kernel saying it is no such device, and the file named", got, err)
 	}
 }
@@ -55,7 +57,7 @@ func TestADeviceThereIsNoLeaveToOpen(t *testing.T) {
 	if _, err := file(t, "sg26", 0).Diagnostic(t.Context(), "sg26", 0x01); !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("an enclosure's device that cannot be opened = %v, want leave refused", err)
 	}
-	if _, err := file(t, cardDevice, 0).CardPage(t.Context(), cardDriver, 0); !errors.Is(err, fs.ErrPermission) {
+	if _, err := file(t, cardDevice, 0).CardPage(t.Context(), cardDriver, 0, mpt.IOUnit7); !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("the cards' device that cannot be opened = %v, want leave refused", err)
 	}
 }
@@ -68,13 +70,13 @@ func TestWhatIsNeverAsked(t *testing.T) {
 	if _, err := dir.Diagnostic(t.Context(), "../"+cardDevice, 0x01); err == nil || noDevice(err) {
 		t.Errorf("a device named with a path in it = %v, want it refused before anything is opened", err)
 	}
-	if _, err := dir.CardPage(t.Context(), "mpt2sas", 0); !errors.Is(err, errors.ErrUnsupported) {
+	if _, err := dir.CardPage(t.Context(), "mpt2sas", 0, mpt.IOUnit7); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("a card on another driver = %v, want it said that such a card is not asked", err)
 	}
 
 	stopped, stop := context.WithCancel(t.Context())
 	stop()
-	if _, err := dir.CardPage(stopped, cardDriver, 0); !errors.Is(err, context.Canceled) {
+	if _, err := dir.CardPage(stopped, cardDriver, 0, mpt.IOUnit7); !errors.Is(err, context.Canceled) {
 		t.Errorf("a card asked once the round was stopped = %v, want it not asked", err)
 	}
 	if _, err := dir.Diagnostic(stopped, cardDevice, 0x01); !errors.Is(err, context.Canceled) {

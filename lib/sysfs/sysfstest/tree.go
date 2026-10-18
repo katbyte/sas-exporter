@@ -253,8 +253,13 @@ func (n *Node) Expander(phys ...int) *Node {
 
 // Address is the node's SAS address as the eight bytes an enclosure gives it in, for a test's made-up enclosure to name its expander by.
 func (n *Node) Address() [8]byte {
+	return Address(n.address)
+}
+
+// Address is a SAS address as the kernel writes it, 0x5000000000000002, as the eight bytes the hardware gives it in.
+func Address(written string) [8]byte {
 	var out [8]byte
-	raw, _ := hex.DecodeString(strings.TrimPrefix(n.address, "0x"))
+	raw, _ := hex.DecodeString(strings.TrimPrefix(written, "0x"))
 	copy(out[:], raw)
 
 	return out

@@ -23,6 +23,7 @@ import (
 	"github.com/katbyte/sas-exporter/lib/mpt"
 	"github.com/katbyte/sas-exporter/lib/poll"
 	"github.com/katbyte/sas-exporter/lib/ses"
+	"github.com/katbyte/sas-exporter/lib/skip"
 )
 
 // The kernel's names for the directories read here.
@@ -65,6 +66,8 @@ var countFiles = [4]string{"invalid_dword_count", "running_disparity_error_count
 type Kernel struct {
 	root    string
 	devices Devices
+	// skip is the parts left out, which are not read or asked for at all
+	skip skip.Set
 	// read reads one file whole: os.ReadFile, or a test's own that refuses or is slow
 	read func(path string) ([]byte, error)
 
@@ -72,6 +75,8 @@ type Kernel struct {
 	// refused is the cards that failed to give their temperature, and how: each is asked once and not again, since a card that does not answer is
 	// reset by its driver
 	refused map[string]error
+	// connectors is which connector each card's phys are wired to, which a card says once and is not asked again
+	connectors map[string][]poll.CardConnector
 	// limitless is the enclosures that would not give the page of limits they hold their sensors to, and laneless the page that says which
 	// connector each lane is wired to, which not every enclosure has: each is asked for either once and not again
 	limitless map[string]bool
@@ -82,14 +87,21 @@ type Kernel struct {
 type Devices struct {
 	// Diagnostic is one page of an enclosure's diagnostics, asked of the SCSI device of that name: sg26.
 	Diagnostic func(ctx context.Context, device string, page byte) ([]byte, error)
-	// CardPage is the page a card keeps its own temperature in, asked of the card whose driver knows it by that number, and nothing for a card
-	// that has no such page.
-	CardPage func(ctx context.Context, driver string, id uint32) ([]byte, error)
+	// CardPage is one page of a card's own, asked of the card whose driver knows it by that number, and nothing for a card that has no such
+	// page: its temperature, the connectors its phys are wired to, how often each link has changed.
+	CardPage func(ctx context.Context, driver string, id uint32, page mpt.Page) ([]byte, error)
 }
 
 // New is the kernel whose /sys is at root, with those ways of asking the hardware itself.
 func New(root string, devices Devices) *Kernel {
-	return &Kernel{root: root, devices: devices, read: os.ReadFile, refused: map[string]error{}, limitless: map[string]bool{}, laneless: map[string]bool{}}
+	return &Kernel{root: root, devices: devices, read: os.ReadFile, refused: map[string]error{}, connectors: map[string][]poll.CardConnector{}, limitless: map[string]bool{}, laneless: map[string]bool{}}
+}
+
+// Skipping leaves those parts out: they are not read, and what costs the hardware a question is not asked.
+func (k *Kernel) Skipping(parts skip.Set) *Kernel {
+	k.skip = parts
+
+	return k
 }
 
 // text is what one file holds, less the padding around it.
@@ -463,6 +475,9 @@ func (r *reading) port(ctx context.Context, n *node, p *port, numbers map[string
 	}
 
 	for _, e := range p.ends {
+		if r.k.skip.Has(skip.Devices) {
+			break
+		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -522,7 +537,7 @@ func (r *reading) phy(dir, expander string) (poll.Phy, error) {
 // none is refused at once and is left without. A read that takes seconds is a card that has stopped answering, and is the last one asked of it this
 // round: every one more would wait as long, and the kernel may reset the card over each.
 func (r *reading) counts(dir string) *poll.PhyErrors {
-	if r.quiet {
+	if r.quiet || r.k.skip.Has(skip.PhyErrors) {
 		return nil
 	}
 
@@ -693,6 +708,10 @@ func slotNumber(given, named string) string {
 
 // Enclosures is the enclosures on one card and what each says of its slots.
 func (k *Kernel) Enclosures(ctx context.Context, hba string) ([]poll.Enclosure, error) {
+	if k.skip.Has(skip.Enclosures) {
+		return nil, nil
+	}
+
 	dir, err := k.hostDir(hba)
 	if err != nil {
 		return nil, err
@@ -790,7 +809,7 @@ func (k *Kernel) enclosure(ctx context.Context, scsi, name, expander string) (po
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || k.skip.Has(skip.Slots) {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -856,22 +875,39 @@ func (k *Kernel) Sensors(ctx context.Context, hba string) (poll.Sensors, error) 
 		}
 	}
 
-	if k.devices.CardPage != nil {
-		page, err := k.cardPage(ctx, hba, dir)
+	var top node
+	var expanders map[string]string
+	if k.devices.CardPage != nil || k.devices.Diagnostic != nil {
+		if top, err = k.tree(dir, "", 0); err != nil {
+			return poll.Sensors{}, err
+		}
+		expanders = k.expanderNames(&top)
+	}
+
+	// each of what the card is asked is asked only once the one before was answered: a card that fails one is asked nothing more
+	if card, err := k.cardOf(hba, dir); err != nil || card.driver != "" {
+		var page []byte
+		if err == nil {
+			page, err = card.ask(ctx, mpt.IOUnit7)
+		}
 		note("the card's temperature", err)
 
 		s.Temperatures = temperatures(page)
 		s.Speed, _ = mpt.Speed(page)
 		s.PowerMode = mpt.PowerMode(page)
+
+		if err == nil && !k.skip.Has(skip.Phys) {
+			s.Connectors, err = card.connectors(ctx)
+			note("the card's connectors", err)
+		}
+		if err == nil && !k.skip.Has(skip.LinkChanges) {
+			s.Changes, s.ExpanderChanges, err = card.changes(ctx, &top, expanders)
+			note("how often the card's links have changed", err)
+		}
 	}
 
-	if k.devices.Diagnostic != nil {
-		top, err := k.tree(dir, "", 0)
-		if err != nil {
-			return poll.Sensors{}, err
-		}
-
-		s.Enclosures, err = k.sensorsBelow(ctx, &top, k.expanderNames(&top))
+	if k.devices.Diagnostic != nil && !k.skip.Has(skip.EnclosureSensors) {
+		s.Enclosures, err = k.sensorsBelow(ctx, &top, expanders)
 		note("the enclosures' sensors", err)
 	}
 
@@ -890,36 +926,136 @@ func kept(err error) bool {
 // errNotAgain is a card that failed to give its temperature once and is not asked again.
 var errNotAgain = errors.New("not asked again until the program is started again, so as not to trouble the card")
 
-// cardPage is the page a card keeps its own temperatures, speed and power mode in, asked of the card through its driver. A card whose driver gives
-// it no number cannot be asked, and has none. A card that fails to answer is asked the once: the driver resets a card that does not answer, and
-// that must not happen every minute.
-func (k *Kernel) cardPage(ctx context.Context, hba, dir string) ([]byte, error) {
+// card is one card as its driver knows it, for asking it for pages of its own: its driver, and the number the driver knows it by.
+type card struct {
+	k      *Kernel
+	hba    string
+	driver string
+	id     uint32
+}
+
+// cardOf is the card the kernel calls hba, as its driver knows it, and nothing for a card that cannot be asked: one with no way of asking set, or
+// whose driver gives it no number.
+func (k *Kernel) cardOf(hba, dir string) (card, error) {
+	if k.devices.CardPage == nil || k.skip.Has(skip.CardSensors) {
+		return card{}, nil
+	}
+
 	a := attrs{k: k, dir: filepath.Join(dir, scsiHostDir, hba)}
 	driver, id := a.optional("proc_name"), a.count("unique_id")
 	if a.err != nil || driver == "" || id == nil {
-		return nil, a.err
+		return card{}, a.err
 	}
 
-	k.mu.Lock()
-	before := k.refused[hba]
-	k.mu.Unlock()
+	return card{k: k, hba: hba, driver: driver, id: uint32(*id)}, nil //nolint:gosec // G115: the driver numbers its cards from 0
+}
+
+// ask asks the card for one of its own pages. A card that fails to answer is asked nothing more until the program is started again: the driver
+// resets a card that does not answer, and that must not happen every minute.
+func (c card) ask(ctx context.Context, page mpt.Page) ([]byte, error) {
+	c.k.mu.Lock()
+	before := c.k.refused[c.hba]
+	c.k.mu.Unlock()
 	if before != nil {
 		return nil, fmt.Errorf("%w (%w)", errNotAgain, before)
 	}
 
-	page, err := k.devices.CardPage(ctx, driver, uint32(*id)) //nolint:gosec // G115: the driver numbers its cards from 0
+	answer, err := c.k.devices.CardPage(ctx, c.driver, c.id, page)
 	if err != nil {
 		// being kept out is not the card failing, and neither is being stopped part way, nor a driver too busy to pass the question on
 		if !kept(err) && !errors.Is(err, syscall.EAGAIN) && ctx.Err() == nil {
-			k.mu.Lock()
-			k.refused[hba] = err
-			k.mu.Unlock()
+			c.k.mu.Lock()
+			c.k.refused[c.hba] = err
+			c.k.mu.Unlock()
 		}
 
 		return nil, err
 	}
 
-	return page, nil
+	return answer, nil
+}
+
+// connectors is which connector on the card each of its phys is wired to. That does not change while the card is in, so it is asked the once.
+func (c card) connectors(ctx context.Context) ([]poll.CardConnector, error) {
+	c.k.mu.Lock()
+	known, asked := c.k.connectors[c.hba]
+	c.k.mu.Unlock()
+	if asked {
+		return known, nil
+	}
+
+	page, err := c.ask(ctx, mpt.Manufacturing7)
+	if err != nil {
+		return nil, err
+	}
+
+	out := []poll.CardConnector{}
+	for _, connector := range mpt.Connectors(page) {
+		out = append(out, poll.CardConnector{Phy: connector.Phy, Connector: connector.Name})
+	}
+
+	c.k.mu.Lock()
+	c.k.connectors[c.hba] = out
+	c.k.mu.Unlock()
+
+	return out, nil
+}
+
+// mostExpanders is how many expanders a card is asked about before it is taken to be listing the same ones round again.
+const mostExpanders = 256
+
+// changes is how many times each phy's link has changed, as the card counts: its own, by the phys the kernel lists for it, then every expander it
+// has found and each of its phys. expanders is the kernel's name for each expander by its SAS address; one the kernel does not have is left out.
+func (c card) changes(ctx context.Context, top *node, expanders map[string]string) ([]poll.LinkChanges, []poll.ExpanderChanges, error) {
+	var links []poll.LinkChanges
+	for _, name := range top.phys {
+		number, err := strconv.Atoi(name[strings.LastIndex(name, ":")+1:])
+		if err != nil {
+			continue
+		}
+
+		page, err := c.ask(ctx, mpt.PhyPage(number))
+		if err != nil {
+			return links, nil, err
+		}
+		if count, ok := mpt.PhyChanges(page); ok {
+			links = append(links, poll.LinkChanges{Phy: number, Count: count})
+		}
+	}
+
+	var found []poll.ExpanderChanges
+	handle := uint16(0xffff)
+	for range mostExpanders {
+		page, err := c.ask(ctx, mpt.NextExpanderPage(handle))
+		if err != nil {
+			return links, found, err
+		}
+
+		// a card with no expander after the last has no such page
+		e, ok := mpt.ExpanderOf(page)
+		if !ok || e.Handle == handle {
+			break
+		}
+		handle = e.Handle
+
+		name, known := expanders[e.Address]
+		if !known {
+			continue
+		}
+		found = append(found, poll.ExpanderChanges{Expander: name, Count: e.Changes})
+
+		for phy := range e.Phys {
+			page, err := c.ask(ctx, mpt.ExpanderPhyPage(e.Handle, phy))
+			if err != nil {
+				return links, found, err
+			}
+			if number, count, ok := mpt.ExpanderPhyChanges(page); ok {
+				links = append(links, poll.LinkChanges{Expander: name, Phy: number, Count: count})
+			}
+		}
+	}
+
+	return links, found, nil
 }
 
 // temperatures is a card's own temperatures, from the page it keeps them in.
@@ -1071,6 +1207,10 @@ func (k *Kernel) enclosureSensors(ctx context.Context, dir string, expanders map
 // lanes asks an enclosure which connector each lane of its expanders is wired to. Not every enclosure has that page, and going without costs only
 // that: nothing here fails, and an enclosure that will not give the page is not asked for it again.
 func (k *Kernel) lanes(ctx context.Context, dir, device string, enclosure *ses.Enclosure, configuration []byte) []ses.Lane {
+	if k.skip.Has(skip.Phys) {
+		return nil
+	}
+
 	k.mu.Lock()
 	without := k.laneless[dir]
 	k.mu.Unlock()

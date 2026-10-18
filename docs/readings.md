@@ -62,7 +62,9 @@ A phy is one end of one lane. A card has one for each lane it can drive, and so 
 | `sas_phy_hardware_maximum_link_rate_gigabits_per_second` | `expander`, `phy` | the most the phy can do |
 | `sas_phy_hardware_minimum_link_rate_gigabits_per_second` | `expander`, `phy` | the least the phy can do |
 | `sas_phy_errors_total` | `expander`, `phy`, `error` | what the phy has counted going wrong on its link |
-| `sas_phy_connector_info` | `expander`, `phy`, `enclosure`, `connector` | always 1; the backplane connector the phy is wired to. *Root* |
+| `sas_phy_connector_info` | `expander`, `phy`, `enclosure`, `connector` | always 1; the connector the phy is wired to, on a backplane or on the card. *Root* |
+| `sas_phy_link_changes_total` | `expander`, `phy` | times the link has dropped, come back or changed speed. *Root* |
+| `sas_expander_changes_total` | `expander` | times anything about the expander has changed. *Root* |
 
 `state` is `up`, `down`, `disabled`, `failed`, `spinup_hold` or `other`. `failed` is two ends that could not agree a speed. `spinup_hold` is a disk waiting to be told to spin up.
 
@@ -81,7 +83,17 @@ A phy set to offer less than it can do has been held back on purpose. A phy that
 
 A cable between a card and a backplane is the card's phys with `expander` on them and the backplane's with `upstream`.
 
-`sas_phy_connector_info` names the connector on the backplane each of its phys is wired to, as the backplane names it: `ConnectorA` for a cable's, `Drive Connector 05` for a slot's. That says which cable a lane with errors is in. Only a backplane that says so has it.
+`sas_phy_connector_info` names the connector each phy is wired to, which says which cable a lane with errors is in:
+
+- On a backplane, as the backplane names it: `ConnectorA` for a cable's, `Drive Connector 05` for a slot's.
+- On the card, as printed beside it, `C0.0`, with `expander` and `enclosure` empty.
+- Only a backplane or a card that says so has it.
+
+`sas_phy_link_changes_total` is how many times the card has seen a link drop, come back, or come back at another speed. It catches a cable that comes and goes between polls, which the link's state, read once a minute, can miss.
+
+- A handful from when the machine started is ordinary.
+- One that keeps climbing is a connection coming and going, even while its error counts stay still.
+- The card keeps eight bits of each count, so it goes back to 0 after 255. A rate or an increase reads that as a restart, and loses at most the changes from just before it.
 
 The kernel lists what is below a phy and never what is above it, so `upstream` is worked out. It is an expander's lowest-numbered phys that have a link and nothing below them, as many as the port leading to that expander is wide. An expander's phys for its own use are numbered after the ones with a connector, which keeps them out of the count.
 
@@ -205,6 +217,30 @@ It is the enclosure's own word on itself, not worked out from its parts. Some sa
 - They can change at a reboot or when a cable is moved.
 - Each info reading also carries what does not change: the expander's `sas_address`, the enclosure's `id`, the disk's `serial`.
 - The number those names begin with is the kernel's number for the card. `expander-1:0` and `1:0:24:0` are behind `host1`.
+
+## Leaving parts out
+
+Everything is on the page unless `--skip` (`SAS_EXPORTER_SKIP`) names it: `--skip phy-errors,slots`. A part left out is not asked for either, so leaving out one that costs the hardware a question saves the question too.
+
+`--metrics` (`SAS_EXPORTER_METRICS`) names the only parts to ask about instead, from the same list, and `--skip` then leaves parts out of those: `--metrics enclosures --skip slots`. A part named brings what is within it and what it is within, so `--metrics slots` keeps the enclosures the slots are read through. What is asked of the hardware itself comes only when named: `--metrics phys` has the lanes as the kernel lists them, and how often their links changed only with `link-changes` or `card-sensors` named too. The `sas_poll_*` readings are a part like any other, so name `poll` as well to keep them.
+
+| `--skip` | What is left out | What is not asked any more |
+|---|---|---|
+| `poll` | `sas_poll_*` | nothing: they are how the asking goes |
+| `cards` | `sas_card_*` but `sas_card_up`, and what the card is asked itself | nothing: it is all in `/sys` |
+| `expanders` | `sas_expander_*` | nothing |
+| `phys` | `sas_phy_*`, with `phy-errors` and `link-changes` | as for those two, and the connector pages |
+| `phy-errors` | `sas_phy_errors_total` | the error counts, each fetched from the card or an expander as it is read |
+| `link-changes` | `sas_phy_link_changes_total`, `sas_expander_changes_total` | about a hundred questions of each card a round |
+| `devices` | `sas_device_*` | each disk's files in `/sys` |
+| `enclosures` | `sas_enclosure_*`, with `slots` and `enclosure-sensors` | as for those two |
+| `slots` | the `sas_enclosure_slot*` readings | each slot, each of which has the kernel fetch the enclosure's whole status |
+| `card-sensors` | all that is asked of a card itself, `link-changes` with it | everything asked through `/dev/mpt3ctl` |
+| `enclosure-sensors` | all that is asked of an enclosure itself | everything asked through an enclosure's `/dev/sgN` |
+
+- `sas_card_up` and `sas_exporter_build_info` are always on the page.
+- A name that is no part, in either list, stops the program at start, naming the parts there are, rather than leave nothing out unnoticed.
+- The cost of a part shows in `sas_poll_duration_seconds`: links for the cards, phys and disks, enclosures for the slots, sensors for what is asked of the hardware.
 
 ## Left out on purpose
 

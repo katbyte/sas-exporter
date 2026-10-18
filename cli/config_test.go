@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/katbyte/sas-exporter/lib/skip"
+
 	"github.com/katbyte/sas-exporter/lib/poll"
 	"github.com/katbyte/sas-exporter/lib/poll/polltest"
 	"github.com/katbyte/sas-exporter/lib/sysfs/sysfstest"
@@ -87,7 +89,7 @@ func write(t *testing.T, dir, name, body string) string {
 func TestDefaults(t *testing.T) {
 	alone(t)
 
-	want := FlagData{Sysfs: "/sys", Dev: "/dev", Listen: ":9088", Sensors: "all"}
+	want := FlagData{Sysfs: "/sys", Dev: "/dev", Listen: ":9088"}
 	if got := *must(t); got != want {
 		t.Errorf("defaults = %+v, want %+v", got, want)
 	}
@@ -101,11 +103,11 @@ func TestEveryFlagHasAnEnvironmentVariable(t *testing.T) {
 	t.Setenv("SAS_EXPORTER_DEV", "/host/dev")
 	t.Setenv("SAS_EXPORTER_LISTEN", "127.0.0.1:9000")
 	t.Setenv("SAS_EXPORTER_LABELS", "hostname=nas")
-	t.Setenv("SAS_EXPORTER_SENSORS", "enclosures")
+	t.Setenv("SAS_EXPORTER_SKIP", "card-sensors")
 	t.Setenv("SAS_EXPORTER_INTERVALS", "links=45s,enclosures=10m,sensors=2m")
 	t.Setenv("SAS_EXPORTER_CARD_NAMES", "9500-16e=jbod")
 
-	want := FlagData{Sysfs: "/host/sys", Dev: "/host/dev", Listen: "127.0.0.1:9000", Labels: "hostname=nas", Sensors: "enclosures", CardNames: "9500-16e=jbod", Intervals: "links=45s,enclosures=10m,sensors=2m"}
+	want := FlagData{Sysfs: "/host/sys", Dev: "/host/dev", Listen: "127.0.0.1:9000", Labels: "hostname=nas", Skip: "card-sensors", CardNames: "9500-16e=jbod", Intervals: "links=45s,enclosures=10m,sensors=2m"}
 	if got := *must(t); got != want {
 		t.Errorf("from the environment = %+v, want %+v", got, want)
 	}
@@ -198,7 +200,7 @@ func TestANamedSettingsFile(t *testing.T) {
 func TestPoller(t *testing.T) {
 	t.Parallel()
 
-	f := FlagData{Sysfs: "/host/sys", Dev: "/host/dev", Sensors: "all", Intervals: "links=1s"}
+	f := FlagData{Sysfs: "/host/sys", Dev: "/host/dev", Intervals: "links=1s"}
 
 	var asked []source
 	p, err := f.poller(func(from source) (poll.Kernel, error) {
@@ -208,8 +210,8 @@ func TestPoller(t *testing.T) {
 	if err != nil || p == nil {
 		t.Fatalf("poller = %v (%v), want one", p, err)
 	}
-	if want := (source{sysfs: "/host/sys", dev: "/host/dev", enclosures: true, card: true}); len(asked) != 1 || asked[0] != want {
-		t.Errorf("the kernel was looked for with %+v, want %+v", asked, want)
+	if len(asked) != 1 || asked[0].sysfs != "/host/sys" || asked[0].dev != "/host/dev" || len(asked[0].skip) != 0 {
+		t.Errorf("the kernel was looked for with %+v, want /host/sys and /host/dev with nothing left out", asked)
 	}
 
 	_, err = f.poller(func(source) (poll.Kernel, error) { return nil, errors.New("no such directory") })
@@ -300,34 +302,51 @@ func TestHowOftenEachPartIsAsked(t *testing.T) {
 	}
 }
 
-// Which of the hardware is asked itself is a list, so one kind can be asked and the other left alone: a card whose temperature is not wanted
-// need never be asked through its driver. A word that is none of them stops the program, naming the setting.
-func TestWhichHardwareIsAsked(t *testing.T) {
+// What is left out is a list, so one part can be left out and the rest kept, and nothing is left out unless named. A word that is no part stops
+// the program, naming the setting.
+func TestWhatIsLeftOut(t *testing.T) {
 	t.Parallel()
 
 	for _, c := range []struct {
 		said string
-		want source
+		want skip.Set
 	}{
-		{"all", source{enclosures: true, card: true}},
-		{"enclosures", source{enclosures: true}},
-		{"cards", source{card: true}},
-		{"enclosures,cards", source{enclosures: true, card: true}},
-		{" cards , enclosures", source{enclosures: true, card: true}},
-		{"none", source{}},
-		{"", source{}},
+		{"", skip.Set{}},
+		{"card-sensors", skip.Set{skip.CardSensors: true}},
+		{" phy-errors , slots", skip.Set{skip.PhyErrors: true, skip.Slots: true}},
+		{"card-sensors,enclosure-sensors", skip.Set{skip.CardSensors: true, skip.EnclosureSensors: true}},
 	} {
-		f := FlagData{Sensors: c.said}
-		if got, err := f.source(); err != nil || got != c.want {
-			t.Errorf("--sensors %q = %+v (%v), want %+v", c.said, got, err, c.want)
+		f := FlagData{Skip: c.said}
+		if got, err := f.source(); err != nil || !maps.Equal(got.skip, c.want) {
+			t.Errorf("--skip %q = %+v (%v), want %+v", c.said, got.skip, err, c.want)
 		}
 	}
 
-	for _, said := range []string{"fans", "all,fans", "enclosures;cards", "hba"} {
-		f := FlagData{Sensors: said}
-		if _, err := f.source(); err == nil || !strings.Contains(err.Error(), "SAS_EXPORTER_SENSORS") {
-			t.Errorf("--sensors %q = %v, want it refused, naming the setting", said, err)
+	for _, said := range []string{"fans", "slots,fans", "phys;slots", "all"} {
+		f := FlagData{Skip: said}
+		if _, err := f.source(); err == nil || !strings.Contains(err.Error(), "SAS_EXPORTER_SKIP") {
+			t.Errorf("--skip %q = %v, want it refused, naming the setting", said, err)
 		}
+	}
+}
+
+// Naming the only parts to ask about leaves out every other, and what --skip names comes out of those too. A word that is no part stops the
+// program, naming the setting.
+func TestOnlyWhatIsNamed(t *testing.T) {
+	t.Parallel()
+
+	f := FlagData{Metrics: "enclosures", Skip: "slots"}
+	got, err := f.source()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.skip.String() != "poll, cards, expanders, phys, phy-errors, link-changes, devices, slots, card-sensors" {
+		t.Errorf("--metrics enclosures --skip slots leaves out %q, want everything but the enclosures and what they measure of themselves", got.skip)
+	}
+
+	f = FlagData{Metrics: "pools"}
+	if _, err := f.source(); err == nil || !strings.Contains(err.Error(), "SAS_EXPORTER_METRICS") {
+		t.Errorf("--metrics pools = %v, want it refused, naming the setting", err)
 	}
 }
 
@@ -350,14 +369,15 @@ func TestConnect(t *testing.T) {
 	}
 }
 
-// The hardware is only ever asked for what the settings say to ask it. Told to ask for nothing, the reader opens no device and has nothing to
-// say went unread; told to ask, it looks for the devices where it was told they are, here a directory with none in it.
+// The hardware is never asked for what the settings leave out. Told to leave both out, the reader opens no device and has nothing to say went
+// unread; told to ask, it looks for the devices where it was told they are, here a directory with none in it.
 func TestConnectAsksOnlyWhatItIsToldTo(t *testing.T) {
 	t.Parallel()
 
 	root, _ := sysfstest.NAS(t)
-	for _, from := range []source{{enclosures: true}, {card: true}, {enclosures: true, card: true}, {}} {
-		from.sysfs, from.dev = root, t.TempDir()
+	for _, parts := range []skip.Set{{skip.CardSensors: true}, {skip.EnclosureSensors: true}, {}, {skip.CardSensors: true, skip.EnclosureSensors: true}} {
+		from := source{sysfs: root, dev: t.TempDir(), skip: parts}
+		enclosures, card := !parts.Has(skip.EnclosureSensors), !parts.Has(skip.CardSensors)
 
 		k, err := connect(from)
 		if err != nil {
@@ -368,10 +388,10 @@ func TestConnectAsksOnlyWhatItIsToldTo(t *testing.T) {
 			t.Fatalf("with %+v the sensors = %+v (%v), want none, and nothing said to have failed", from, got, err)
 		}
 
-		if said := strings.Contains(got.Unavailable, "enclosures"); said != from.enclosures {
+		if said := strings.Contains(got.Unavailable, "enclosures"); said != enclosures {
 			t.Errorf("with %+v what could not be asked = %q, which names the enclosures: %t", from, got.Unavailable, said)
 		}
-		if said := strings.Contains(got.Unavailable, "card"); said != from.card {
+		if said := strings.Contains(got.Unavailable, "card"); said != card {
 			t.Errorf("with %+v what could not be asked = %q, which names the card: %t", from, got.Unavailable, said)
 		}
 	}

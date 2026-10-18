@@ -3,6 +3,7 @@ package mpt_test
 import (
 	"encoding/binary"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/katbyte/sas-exporter/lib/mpt"
@@ -39,13 +40,39 @@ func TestTheRequestsAreTheOnesTheDriverSends(t *testing.T) {
 	}
 
 	// the page is then asked for with the header the card gave, which is where its length comes from
-	header, err := mpt.Reply(reply(0, 10))
-	if err != nil || header != (mpt.Header{0x05, 10, 7, 0x00}) || header.Bytes() != 40 {
-		t.Fatalf("the header read back is %v, %d bytes long (%v); want version 5, 40 bytes, page 7", header, header.Bytes(), err)
+	answer, err := mpt.Reply(reply(0, 10))
+	if err != nil || answer.Header != (mpt.Header{0x05, 10, 7, 0x00}) || answer.Bytes() != 40 {
+		t.Fatalf("the header read back is %v, %d bytes long (%v); want version 5, 40 bytes, page 7", answer.Header, answer.Bytes(), err)
 	}
 
 	want = [mpt.RequestSize]byte{0: 0x01, 3: 0x04, 20: 0x05, 21: 10, 22: 0x07, 23: 0x00}
-	if got := mpt.ReadRequest(header); got != want {
+	if got := mpt.ReadRequest(mpt.IOUnit7, answer); got != want {
+		t.Errorf("the request for the page is\n% x\nwant\n% x", got, want)
+	}
+}
+
+// An extended page is asked for as the driver asks for one: its own kind beside the header, which says only that it is extended, and its length
+// in a field of its own. The read repeats both and names which phy of which expander it is about.
+func TestTheRequestsForAnExtendedPage(t *testing.T) {
+	t.Parallel()
+
+	page := mpt.ExpanderPhyPage(0x0009, 12)
+	want := [mpt.RequestSize]byte{0: 0x00, 3: 0x04, 6: 0x11, 20: 0x02, 21: 0, 22: 1, 23: 0x0f}
+	if got := mpt.HeaderRequest(page); got != want {
+		t.Errorf("the request for the header is\n% x\nwant\n% x", got, want)
+	}
+
+	// an extended page's length is in the reply's own field for it, and its header says nothing of it
+	got := reply(0, 0)
+	got[4], got[6] = 12, 0x11
+	copy(got[20:], []byte{0x02, 0, 1, 0x0f})
+	answer, err := mpt.Reply(got)
+	if err != nil || answer.Bytes() != 48 || answer.ExtendedType != 0x11 {
+		t.Fatalf("the answer read back is %+v, %d bytes long (%v); want an expander page of 48 bytes", answer, answer.Bytes(), err)
+	}
+
+	want = [mpt.RequestSize]byte{0: 0x01, 3: 0x04, 4: 12, 6: 0x11, 20: 0x02, 21: 0, 22: 1, 23: 0x0f, 24: 0x09, 25: 0x00, 26: 12, 27: 0x10}
+	if got := mpt.ReadRequest(page, answer); got != want {
 		t.Errorf("the request for the page is\n% x\nwant\n% x", got, want)
 	}
 }
@@ -143,5 +170,58 @@ func TestACardsSpeedAndPower(t *testing.T) {
 	}
 	if got := mpt.PowerMode(make([]byte, 4)); got != "" {
 		t.Errorf("a page too short to say is in power mode %q", got)
+	}
+}
+
+// A card names the connector each of its phys is wired to, as printed beside it. A phy wired to none, or given no name, is left out, and so is
+// what a page too short to hold says.
+func TestWhichConnectorEachOfACardsPhysIsWiredTo(t *testing.T) {
+	t.Parallel()
+
+	page := make([]byte, 0x24+4*0x1c)
+	page[0x20] = 5 // one more than the page holds
+	for phy, c := range []struct {
+		name  string
+		where byte
+	}{{"C0.0", 0x02}, {"C0.1", 0x02}, {"", 0x02}, {"C9.9", 0x80}} {
+		copy(page[0x24+phy*0x1c+4:], c.name)
+		page[0x24+phy*0x1c+0x14] = c.where
+	}
+
+	want := []mpt.Connector{{Phy: 0, Name: "C0.0"}, {Phy: 1, Name: "C0.1"}}
+	if got := mpt.Connectors(page); !slices.Equal(got, want) {
+		t.Errorf("connectors = %+v, want %+v", got, want)
+	}
+	if got := mpt.Connectors(page[:0x20]); got != nil {
+		t.Errorf("a page too short to say has connectors %+v", got)
+	}
+}
+
+// A card counts how many times each phy's link has changed, its own and every expander's, and says what it has found of each expander.
+func TestHowOftenALinkHasChanged(t *testing.T) {
+	t.Parallel()
+
+	own := make([]byte, 0x24)
+	own[0x16] = 3
+	if changes, ok := mpt.PhyChanges(own); !ok || changes != 3 {
+		t.Errorf("the card's own phy changed %d times (%t), want 3", changes, ok)
+	}
+	if _, ok := mpt.PhyChanges(own[:0x16]); ok {
+		t.Error("a page too short to say has a count")
+	}
+
+	theirs := make([]byte, 0x2c)
+	theirs[0x1e], theirs[0x20] = 255, 12
+	if phy, changes, ok := mpt.ExpanderPhyChanges(theirs); !ok || phy != 12 || changes != 255 {
+		t.Errorf("the expander's phy %d changed %d times (%t), want phy 12 at 255", phy, changes, ok)
+	}
+
+	expander := make([]byte, 0x30)
+	binary.LittleEndian.PutUint64(expander[0x0c:], 0x500304801eb5a03f)
+	binary.LittleEndian.PutUint16(expander[0x18:], 0x0009)
+	binary.LittleEndian.PutUint16(expander[0x1c:], 300)
+	expander[0x20] = 51
+	if got, ok := mpt.ExpanderOf(expander); !ok || got != (mpt.Expander{Handle: 9, Address: "500304801eb5a03f", Phys: 51, Changes: 300}) {
+		t.Errorf("the expander = %+v (%t), want handle 9, its address, 51 phys and 300 changes", got, ok)
 	}
 }

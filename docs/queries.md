@@ -38,6 +38,7 @@ sas_card_commands_in_flight / sas_card_commands_in_flight_limit > 0.8  # a card 
 
 ```promql
 increase(sas_phy_errors_total[1h]) > 0                       # a lane counted errors in the last hour
+increase(sas_phy_link_changes_total[1h]) > 0                # a link that dropped or changed speed in the last hour
 sas_phy_link_state{state=~"failed|disabled"} == 1            # a link that would not come up
 sas_phy_link_rate_gigabits_per_second                        # link speeds: one lane of a cable slower than the rest came up slow
 count by (card, expander) (sas_phy_info{attached="upstream"})  # lanes each backplane has back to the card: fewer than before is a lane lost

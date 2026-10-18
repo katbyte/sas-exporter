@@ -49,8 +49,9 @@ var (
 	_ [96]byte = [unsafe.Sizeof(cardRequest{})]byte{}
 )
 
-// send puts one request to a card through its driver and gives back the header of the page it is about. A page asked for is written into page.
-func send(fd int, card uint32, request [mpt.RequestSize]byte, page []byte) (mpt.Header, error) {
+// send puts one request to a card through its driver and gives back what the card said of the page it is about. A page asked for is written
+// into page.
+func send(fd int, card uint32, request [mpt.RequestSize]byte, page []byte) (mpt.Answer, error) {
 	reply := make([]byte, cardReply)
 	r := cardRequest{card: card, timeout: cardTimeout, reply: unsafe.Pointer(&reply[0]), replySize: cardReply, requestWords: mpt.RequestSize / 4, request: request} //nolint:gosec // G103: the driver's interface takes the reply by address
 	if len(page) > 0 {
@@ -62,23 +63,23 @@ func send(fd int, card uint32, request [mpt.RequestSize]byte, page []byte) (mpt.
 	runtime.KeepAlive(page)
 	// this is what the driver says once it has given up waiting for the card, and by then it has reset it
 	if errno == syscall.ENODATA {
-		return mpt.Header{}, fmt.Errorf("the card did not answer in %d seconds, and its driver resets a card that does not: %w", cardTimeout, errno)
+		return mpt.Answer{}, fmt.Errorf("the card did not answer in %d seconds, and its driver resets a card that does not: %w", cardTimeout, errno)
 	}
 	if errno != 0 {
-		return mpt.Header{}, errno
+		return mpt.Answer{}, errno
 	}
 
 	return mpt.Reply(reply)
 }
 
-// CardPage is the page a card keeps its own temperature in, asked of the card through its driver, and nothing for a card that has no such page.
-// id is the number the driver knows the card by. Only cards on the mpt3sas driver are asked: it is the only one this has been written against.
-func (d Dir) CardPage(ctx context.Context, driver string, id uint32) ([]byte, error) {
+// CardPage is one page of a card's, asked of the card through its driver, and nothing for a card that has no such page. id is the number the
+// driver knows the card by. Only cards on the mpt3sas driver are asked: it is the only one this has been written against.
+func (d Dir) CardPage(ctx context.Context, driver string, id uint32, want mpt.Page) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if driver != cardDriver {
-		return nil, fmt.Errorf("asking a card on the %s driver for its temperature: %w", driver, errors.ErrUnsupported)
+		return nil, fmt.Errorf("asking a card on the %s driver for its own pages: %w", driver, errors.ErrUnsupported)
 	}
 
 	path := filepath.Join(string(d), cardDevice)
@@ -89,17 +90,22 @@ func (d Dir) CardPage(ctx context.Context, driver string, id uint32) ([]byte, er
 	defer func() { _ = syscall.Close(fd) }()
 
 	// the card is first asked whether it has the page and how long it is, as the driver itself does
-	header, err := send(fd, id, mpt.HeaderRequest(mpt.IOUnit7), nil)
-	if errors.Is(err, mpt.ErrNoPage) || (err == nil && header.Bytes() == 0) {
+	answer, err := send(fd, id, mpt.HeaderRequest(want), nil)
+	if errors.Is(err, mpt.ErrNoPage) || (err == nil && answer.Bytes() == 0) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("asking card %d through %s which pages it has: %w", id, path, err)
+		return nil, fmt.Errorf("asking card %d through %s whether it has %s: %w", id, path, want, err)
 	}
 
-	page := make([]byte, header.Bytes())
-	if _, err := send(fd, id, mpt.ReadRequest(header), page); err != nil {
-		return nil, fmt.Errorf("asking card %d through %s for its temperature: %w", id, path, err)
+	// a card can have a kind of page and still none at that address: no expander after the last
+	page := make([]byte, answer.Bytes())
+	_, err = send(fd, id, mpt.ReadRequest(want, answer), page)
+	if errors.Is(err, mpt.ErrNoPage) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("asking card %d through %s for %s: %w", id, path, want, err)
 	}
 
 	return page, nil

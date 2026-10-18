@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"runtime"
 	"testing"
+
+	"github.com/katbyte/sas-exporter/lib/mpt"
 )
 
 // The six bytes that ask an enclosure for a page are the ones the standard gives: the command, that it names a page, which page, and how much
@@ -61,7 +63,7 @@ func TestADeviceThatIsNotThere(t *testing.T) {
 	if _, err := dir.Diagnostic(t.Context(), "sg26", 0x01); !errors.Is(err, want) {
 		t.Errorf("an enclosure with no device = %v, want %v", err, want)
 	}
-	if _, err := dir.CardPage(t.Context(), cardDriver, 0); !errors.Is(err, want) && !errors.Is(err, errors.ErrUnsupported) {
+	if _, err := dir.CardPage(t.Context(), cardDriver, 0, mpt.IOUnit7); !errors.Is(err, want) && !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("a card with no device = %v, want %v", err, want)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/katbyte/go-kt/prometheus/metrics"
 	"github.com/katbyte/sas-exporter/lib/mpt"
 	"github.com/katbyte/sas-exporter/lib/poll"
+	"github.com/katbyte/sas-exporter/lib/skip"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -82,7 +83,8 @@ var (
 	cardSlotWidth    = reading("card_pcie_link_width", "How many lanes the card's own link to the machine came up with.")
 	cardSlotMaxWidth = reading("card_pcie_maximum_link_width", "How many lanes the card's own link to the machine could have: a link narrower than this is a card in a narrower slot, or not seated.")
 
-	expanderInfo = reading("expander_info", "Always 1, with the expander's maker, product and revision, its SAS address, which stays the same when the kernel's name for the expander changes, and the chip it is built on by its maker, number and revision.", expanderLabel, "vendor", "product", "revision", "sas_address", "chip_vendor", "chip", "chip_revision")
+	expanderChanges = reading("expander_changes_total", "How many times anything about the expander has changed, a link of its or what is beyond one, as the card counts. The card keeps sixteen bits of it.", expanderLabel)
+	expanderInfo    = reading("expander_info", "Always 1, with the expander's maker, product and revision, its SAS address, which stays the same when the kernel's name for the expander changes, and the chip it is built on by its maker, number and revision.", expanderLabel, "vendor", "product", "revision", "sas_address", "chip_vendor", "chip", "chip_revision")
 
 	phyInfo      = reading("phy_info", "Always 1, with what is on the other end of the phy's link: device for a disk or an enclosure's own processor, expander for a further expander, upstream for the way back to the card, none for nothing the kernel lists.", expanderLabel, phyLabel, "attached")
 	phyLinkState = reading("phy_link_state", "Always 1, with what the phy says of its link: up, down, disabled, failed when the two ends could not agree a speed, spinup_hold for a disk waiting to be told to spin up, or other.", expanderLabel, phyLabel, "state")
@@ -91,7 +93,8 @@ var (
 	phyMinimum   = reading("phy_minimum_link_rate_gigabits_per_second", "The least the phy is set to offer, in gigabits a second: a link that cannot come up at this or faster does not come up at all.", expanderLabel, phyLabel)
 	phyHWMaximum = reading("phy_hardware_maximum_link_rate_gigabits_per_second", "The most the phy can do, in gigabits a second: one set to offer less than this has been held back on purpose.", expanderLabel, phyLabel)
 	phyHWMinimum = reading("phy_hardware_minimum_link_rate_gigabits_per_second", "The least the phy can do, in gigabits a second.", expanderLabel, phyLabel)
-	phyConnector = reading("phy_connector_info", "Always 1, with the connector the phy is wired to, as the enclosure the expander is in names it: ConnectorA for a cable's, Drive Connector 05 for a slot's.", expanderLabel, phyLabel, enclosureLabel, "connector")
+	phyConnector = reading("phy_connector_info", "Always 1, with the connector the phy is wired to: on a backplane as its enclosure names it, ConnectorA for a cable's and Drive Connector 05 for a slot's; on the card as printed beside it, C0.0, with no expander or enclosure.", expanderLabel, phyLabel, enclosureLabel, "connector")
+	phyChanges   = reading("phy_link_changes_total", "How many times the phy's link has changed, dropped, come back or come back at another speed, as the card counts. The card keeps eight bits of it, so it goes round to 0 after 255, which a rate reads as a restart.", expanderLabel, phyLabel)
 	phyErrors    = reading("phy_errors_total", "Errors the phy has counted on its link since it was last reset, by kind: invalid_dword, running_disparity, loss_of_dword_sync and phy_reset_problem. One that keeps growing is a cable, a connector or a slot going bad.", expanderLabel, phyLabel, "error")
 
 	deviceInfo      = reading("device_info", "Always 1, with what the device is and where: its world wide name, maker, model and firmware, its SAS address, the phy its link is on, and the enclosure and slot it sits in.", serialLabel, diskLabel, "wwn", "vendor", "model", "revision", "sas_address", expanderLabel, phyLabel, enclosureLabel, slotLabel)
@@ -133,11 +136,19 @@ type Source interface {
 // Readings writes what a source knows as readings. It asks the kernel nothing, so a scrape is answered from memory however slow a card is.
 type Readings struct {
 	source Source
+	skip   skip.Set
 }
 
 // New is the readings of one machine's cards.
 func New(source Source) *Readings {
 	return &Readings{source: source}
+}
+
+// Skipping leaves those parts off the page. Whether a card is up, and how the asking is going, are always on it.
+func (r *Readings) Skipping(parts skip.Set) *Readings {
+	r.skip = parts
+
+	return r
 }
 
 // Describe names every reading there can be.
@@ -151,12 +162,16 @@ func (r *Readings) Collect(ch chan<- prometheus.Metric) {
 	s := r.source.State()
 	for i := range s.Cards {
 		card := &s.Cards[i]
-		w := writer{metrics.NewWriter(ch, card.Called)}
+		w := writer{metrics.NewWriter(ch, card.Called), r.skip}
 
 		w.inService(card)
-		w.card(card)
+		if !r.skip.Has(skip.Cards) {
+			w.card(card)
+		}
 		w.links(card)
-		w.enclosures(card)
+		if !r.skip.Has(skip.Enclosures) {
+			w.enclosures(card)
+		}
 		w.sensors(card)
 	}
 }
@@ -165,6 +180,7 @@ func (r *Readings) Collect(ch chan<- prometheus.Metric) {
 // twice would otherwise put two readings under one set of labels, and spoil the whole page.
 type writer struct {
 	*metrics.Writer
+	skip skip.Set
 }
 
 // inService is whether the kernel has the card in service, once it has been asked. How the asking itself is going is go-kt's poller's to write.
@@ -213,17 +229,21 @@ func (w writer) links(card *poll.Card) {
 
 	links := card.Links.Value
 	for _, e := range links.Expanders {
-		if w.First(expanderLabel, e.Name) {
+		if !w.skip.Has(skip.Expanders) && w.First(expanderLabel, e.Name) {
 			w.Gauge(expanderInfo, 1, e.Name, e.Vendor, e.Product, e.Revision, e.SASAddress, e.ChipVendor, e.Chip, e.ChipRevision)
 		}
 	}
 
 	for i := range links.Phys {
-		w.phy(&links.Phys[i])
+		if !w.skip.Has(skip.Phys) {
+			w.phy(&links.Phys[i])
+		}
 	}
 
 	for i := range links.Devices {
-		w.device(&links.Devices[i])
+		if !w.skip.Has(skip.Devices) {
+			w.device(&links.Devices[i])
+		}
 	}
 }
 
@@ -245,7 +265,7 @@ func (w writer) phy(phy *poll.Phy) {
 		}
 	}
 
-	if phy.Errors == nil {
+	if phy.Errors == nil || w.skip.Has(skip.PhyErrors) {
 		return
 	}
 
@@ -304,6 +324,9 @@ func (w writer) enclosures(card *poll.Card) {
 		}
 
 		w.Gauge(enclosureInfo, 1, e.Name, e.Vendor, e.Product, e.Revision, e.ID, e.Expander, e.VendorSpecific)
+		if w.skip.Has(skip.Slots) {
+			continue
+		}
 		w.Gauge(enclosureSlots, float64(len(e.Slots)), e.Name)
 
 		for _, slot := range e.Slots {
@@ -328,6 +351,17 @@ func (w writer) sensors(card *poll.Card) {
 	}
 
 	sensors := card.Sensors.Value
+	if !w.skip.Has(skip.CardSensors) {
+		w.cardSensors(&sensors)
+	}
+	if !w.skip.Has(skip.EnclosureSensors) {
+		w.enclosureSensors(&sensors)
+	}
+}
+
+// cardSensors is what the card measures and says of itself when asked: its temperature, speed and power, which connector each of its phys is
+// wired to, and how often each link has changed.
+func (w writer) cardSensors(sensors *poll.Sensors) {
 	for _, t := range sensors.Temperatures {
 		if w.First("temperature", t.Sensor) {
 			w.Gauge(cardTemperature, t.Celsius, t.Sensor)
@@ -340,6 +374,30 @@ func (w writer) sensors(card *poll.Card) {
 		w.States(cardPowerMode, mpt.PowerModes, sensors.PowerMode)
 	}
 
+	for _, c := range sensors.Connectors {
+		number := strconv.Itoa(c.Phy)
+		if !w.skip.Has(skip.Phys) && w.First("lane", "", number) {
+			w.Gauge(phyConnector, 1, "", number, "", c.Connector)
+		}
+	}
+	if w.skip.Has(skip.LinkChanges) {
+		return
+	}
+	for _, c := range sensors.Changes {
+		number := strconv.Itoa(c.Phy)
+		if w.First("changes", c.Expander, number) {
+			w.Total(phyChanges, c.Count, c.Expander, number)
+		}
+	}
+	for _, c := range sensors.ExpanderChanges {
+		if !w.skip.Has(skip.Expanders) && w.First("expander changes", c.Expander) {
+			w.Total(expanderChanges, c.Count, c.Expander)
+		}
+	}
+}
+
+// enclosureSensors is what each enclosure measures and says of itself when asked, beside its slots.
+func (w writer) enclosureSensors(sensors *poll.Sensors) {
 	for i := range sensors.Enclosures {
 		e := &sensors.Enclosures[i]
 		if !w.First("sensors", e.Name) {
@@ -357,7 +415,7 @@ func (w writer) sensors(card *poll.Card) {
 
 		for _, lane := range e.Lanes {
 			number := strconv.Itoa(lane.Phy)
-			if w.First("lane", lane.Expander, number) {
+			if !w.skip.Has(skip.Phys) && w.First("lane", lane.Expander, number) {
 				w.Gauge(phyConnector, 1, lane.Expander, number, e.Name, lane.Connector)
 			}
 		}
