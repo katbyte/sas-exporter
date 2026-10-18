@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os/signal"
 	"syscall"
 
@@ -50,6 +51,9 @@ SAS_EXPORTER_CARD_NAMES and SAS_EXPORTER_INTERVALS.`,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
+
+			// said before anything else, so a log shows which build it came from
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), versionString())
 
 			f := GetFlags()
 			poller, err := f.poller(connect)

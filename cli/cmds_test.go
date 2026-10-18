@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/katbyte/go-kt/prometheus/metrics"
+	"github.com/katbyte/go-kt/version"
 	"github.com/katbyte/sas-exporter/lib/poll"
 	"github.com/katbyte/sas-exporter/lib/poll/polltest"
 	"github.com/katbyte/sas-exporter/lib/sysfs"
@@ -107,6 +108,25 @@ func TestVersionCommand(t *testing.T) {
 	out, err := run(t, kernel(twoCards()), "version")
 	if err != nil || !strings.HasPrefix(out, "sas-exporter ") {
 		t.Errorf("version printed %q (%v), want the name and a version", out, err)
+	}
+}
+
+// The version says which commit it was built from once, whether or not the version already names it.
+//
+//nolint:paralleltest // the version is global state
+func TestVersionString(t *testing.T) {
+	before, commit := version.Version, version.GitCommit
+	t.Cleanup(func() { version.Version, version.GitCommit = before, commit })
+
+	for _, tc := range []struct{ version, commit, want string }{
+		{"v0.3.0", "51999e6", "sas-exporter v0.3.0 (51999e6)"},
+		{"v0.3.0+3@g1a2b3c4", "1a2b3c4", "sas-exporter v0.3.0+3@g1a2b3c4"},
+		{"v0.3.0", "", "sas-exporter v0.3.0"},
+	} {
+		version.Version, version.GitCommit = tc.version, tc.commit
+		if got := versionString(); got != tc.want {
+			t.Errorf("version %q and commit %q read as %q, want %q", tc.version, tc.commit, got, tc.want)
+		}
 	}
 }
 

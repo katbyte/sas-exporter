@@ -4,6 +4,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/katbyte/go-kt/prometheus/exporter"
 	"github.com/katbyte/go-kt/version"
@@ -37,7 +38,7 @@ Complete documentation is available at https://github.com/katbyte/sas-exporter`,
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		Run: func(cmd *cobra.Command, _ []string) {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "sas-exporter "+version.Version)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), versionString())
 		},
 	})
 
@@ -84,4 +85,15 @@ look at what would be reported.`,
 	root.PersistentPreRunE = func(*cobra.Command, []string) error { return loadConfig() }
 
 	return root, nil
+}
+
+// versionString is the name, version and commit the binary was built from, as the version command prints it and serve starts by saying.
+// A build past a tag already names its commit in the version, so the commit is only added when it is not there.
+func versionString() string {
+	s := "sas-exporter " + version.Version
+	if version.GitCommit != "" && !strings.Contains(version.Version, version.GitCommit) {
+		s += " (" + version.GitCommit + ")"
+	}
+
+	return s
 }

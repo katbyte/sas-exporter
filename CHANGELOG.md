@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2026-10-18)
+
+- **Says which build it is when it starts serving**: the first line it prints is the version and the commit it was built from, `sas-exporter v0.3.1 (1a2b3c4)`, and `sas-exporter version` prints the same.
+- **The commit on `sas_exporter_build_info` is just the commit** in a build made with `make`, as it already was in a release, not the version and commit run together.
+
 ## 0.3.0 (2026-10-18)
 
 - **Leave out any part**, and it is not asked for either: `--skip` (`SAS_EXPORTER_SKIP`) takes a list of `poll`, `cards`, `expanders`, `phys`, `phy-errors`, `link-changes`, `devices`, `enclosures`, `slots`, `card-sensors` and `enclosure-sensors`. Everything is on unless named.
