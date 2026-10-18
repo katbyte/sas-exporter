@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-10-18)
 
 - **Leave out any part**, and it is not asked for either: `--skip` (`SAS_EXPORTER_SKIP`) takes a list of `poll`, `cards`, `expanders`, `phys`, `phy-errors`, `link-changes`, `devices`, `enclosures`, `slots`, `card-sensors` and `enclosure-sensors`. Everything is on unless named.
 - **Or name the only parts to ask about**: `--metrics` (`SAS_EXPORTER_METRICS`) takes the same names, and `--skip` then leaves parts out of those.
